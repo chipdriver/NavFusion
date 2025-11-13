@@ -1,0 +1,17 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "烧录",
+      "type": "shell",
+      "command": "STM32_Programmer_CLI.exe",
+      "args": [
+        "-c", "port=SWD",
+        "-w", "${command:cmake.launchTargetPath}",   // 直接写 ELF
+        "-v",
+        "-rst"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
