@@ -62,5 +62,15 @@ void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 2 */
-
+/**
+ * @brief 初始化I2C所需要的引脚 PB6 -> SCL, PB7 -> SDA
+ * @param None
+ * @return None
+ */
+void I2C_GPIO_Init(void)
+{
+  //1.使能GPIOB时钟
+  RCC->AHB1ENR = RCC->AHB1ENR | RCC_AHB1ENR_GPIOBEN;
+  //2.配置每个寄存器
+}
 /* USER CODE END 2 */

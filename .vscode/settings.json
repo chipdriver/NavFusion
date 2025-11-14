@@ -17,6 +17,7 @@
         "a7670e.h": "c",
         "usart.h": "c",
         "stm32f4xx_hal_uart.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "gpio.h": "c"
     }
 }

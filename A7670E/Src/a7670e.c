@@ -232,10 +232,6 @@ uint8_t AT_GNSS_PowerOff(void)
 
 
 /**
- * @brief 获取一次 GNSS 定位信息并解析（整数打印版）
- * @return 1：解析成功；0：未定位或格式无效
- */
-/**
  * @brief 获取一次 GNSS 定位信息并解析（整数打印版，带行过滤）
  * @return 1：解析成功；0：未定位或格式无效
  */
@@ -243,10 +239,8 @@ uint8_t AT_GNSS_GetLocation(void)
 {
     // 1. 发送命令并把应答读到 AT_rx_buffer 里
     printf_uart1("AT+CGPSINFO\r\n");
-    // 窗口放宽一点，避免被拆成多段
     AT_ReadAllToBuffer_Timeout(3000, 500, 1);
-
-    printf_uart6("RAW: %s\r\n", AT_rx_buffer);
+    printf_uart6("RAW: %s\r\n", AT_rx_buffer);//调试用
 
     // 2. 在 AT_rx_buffer 里找到 "+CGPSINFO:" 那一行
     char *start = strstr(AT_rx_buffer, "+CGPSINFO:");
@@ -258,9 +252,7 @@ uint8_t AT_GNSS_GetLocation(void)
     // 把这一行拷贝出来（到回车/换行为止）
     char line[160];
     int i = 0;
-    while (i < (int)sizeof(line) - 1 &&
-           start[i] != '\r' && start[i] != '\n' &&
-           start[i] != '\0')
+    while (i < (int)sizeof(line) - 1 && start[i] != '\r' && start[i] != '\n' && start[i] != '\0')
     {
         line[i] = start[i];
         i++;
@@ -304,56 +296,18 @@ uint8_t AT_GNSS_GetLocation(void)
         printf_uart6("field[%d] = '%s'\r\n", k, field[k]);
     }
 
-    // 纬度或经度为空 => 未定位成功（,,,,,,,, 这种）
-    if (field[0][0] == '\0' || field[2][0] == '\0') {
-        printf_uart6("Not fixed.\r\n");
-        return 0;
-    }
+    // field[0]    纬度（DDMM.MMMM）
+    // field[1]    南北半球 N/S
+    // field[2]    经度（DDDMM.MMMM）
+    // field[3]    东西半球 E/W
+    // field[4]    日期（DDMMYY）
+    // field[5]    时间（UTC, HHMMSS）
+    // field[6]    海拔（米）
+    // field[7]    速度（节 knots）
+    // field[8]    航向角（度）
 
-    // 5. 解析为 double（内部用 double 运算）
-    double lat_raw = atof(field[0]);              // 3616.87580
-    int    lat_d   = (int)(lat_raw / 100);
-    double lat_m   = lat_raw - lat_d * 100;
-    double lat     = lat_d + lat_m / 60.0;
 
-    if (field[1][0] == 'S') lat = -lat;
-
-    double lon_raw = atof(field[2]);              // 12015.78464
-    int    lon_d   = (int)(lon_raw / 100);
-    double lon_m   = lon_raw - lon_d * 100;
-    double lon     = lon_d + lon_m / 60.0;
-
-    if (field[3][0] == 'W') lon = -lon;
-
-    double alt = 0.0;
-    if (count > 6 && field[6][0] != '\0') {
-        alt = atof(field[6]);                     // 米
-    }
-
-    double speed_knots = 0.0;
-    if (count > 7 && field[7][0] != '\0') {
-        speed_knots = atof(field[7]);             // 节
-    }
-    double speed_kmh = speed_knots * 1.852;       // 转 km/h
-
-    double course = 0.0;
-    if (count > 8 && field[8][0] != '\0') {
-        course = atof(field[8]);                  // 度
-    }
-
-    // 6. 整数打印（不会用到 %f）
-    int32_t lat_i    = (int32_t)(lat * 1000000);  // 1e-6 度
-    int32_t lon_i    = (int32_t)(lon * 1000000);
-    int32_t alt_i    = (int32_t)(alt * 10);       // 0.1 m
-    int32_t speed_i  = (int32_t)(speed_kmh * 10); // 0.1 km/h
-    int32_t course_i = (int32_t)(course * 10);    // 0.1 deg
-
-    printf_uart6("Lat_i    = %ld (×1e-6 deg)\r\n", lat_i);
-    printf_uart6("Lon_i    = %ld (×1e-6 deg)\r\n", lon_i);
-    printf_uart6("Alt_i    = %ld (×0.1 m)\r\n",   alt_i);
-    printf_uart6("Speed_i  = %ld (×0.1 km/h)\r\n", speed_i);
-    printf_uart6("Course_i = %ld (×0.1 deg)\r\n", course_i);
-
+    
     return 1;
 }
 
