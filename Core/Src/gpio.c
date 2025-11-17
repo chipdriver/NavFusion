@@ -70,7 +70,20 @@ void MX_GPIO_Init(void)
 void I2C_GPIO_Init(void)
 {
   //1.使能GPIOB时钟
-  RCC->AHB1ENR = RCC->AHB1ENR | RCC_AHB1ENR_GPIOBEN;
-  //2.配置每个寄存器
+  *(volatile uint32_t *)(0x40023800 + 0x30) |= (1 << 1); // RCC_AHB1ENR寄存器使能GPIOB时钟
+
+  //2.配置引脚
+  //PB6，PB7的位清零，
+  GPIOB->MODER &= ~( (3<<12) | (3 << 14) );
+  //模式：输出模式
+  GPIOB->MODER |= (1 << 12) | (1 << 14);
+  //输出类型：开漏输出
+  GPIOB->OTYPER |= (1 << 6) | (1 << 7);
+  //输出速度
+  GPIOB->OSPEEDR |= (3 << 12) | (3 << 14);
+  //禁用内部上拉，因为内部的弱、慢、不符合I2C标准
+  GPIOB->PUPDR &= ~((3 << 12) | (3 << 14));
+  // 设置初始电平为高（I2C 空闲状态）
+  GPIOB->BSRR = (1 << 6) | (1 << 7);  
 }
 /* USER CODE END 2 */
