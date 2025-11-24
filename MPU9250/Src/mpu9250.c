@@ -840,6 +840,9 @@ static float g_exInt = 0.0f, g_eyInt = 0.0f, g_ezInt = 0.0f;
 static float g_kp = 2.0f;
 static float g_ki = 0.0f;
 
+// 静态零偏抑制参数
+static float g_acc_norm_prev = 1.0f;  // 上一次加速度模长
+
 void MPU9250_MahonyInit(float kp, float ki)
 {
     g_kp = kp;
@@ -850,6 +853,7 @@ void MPU9250_MahonyInit(float kp, float ki)
     g_exInt = g_eyInt = g_ezInt = 0.0f;
 
     g_euler_fused.roll = g_euler_fused.pitch = g_euler_fused.yaw = 0.0f;
+    g_acc_norm_prev = 1.0f;
 }
 
 /**
@@ -882,6 +886,29 @@ void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
     
     float norm_mag = sqrtf(mx*mx + my*my + mz*mz);
     if (norm_mag < 1e-6f) return;  // 磁场异常
+    
+    /*---------- 2.1) 动态自适应 Kp：根据加速度状态调整 ----------*/
+    float acc_diff = fabsf(norm_acc - g_acc_norm_prev);
+    float acc_error = fabsf(norm_acc - 1.0f);
+    
+    float kp_dynamic = g_kp;  // 默认使用基础 Kp
+    
+    // 三级自适应策略
+    if (acc_error < 0.05f && acc_diff < 0.02f) {
+        // 完全静止：强力修正（地面待机）
+        kp_dynamic = g_kp * 10.0f;
+    } 
+    else if (acc_error < 0.15f && acc_diff < 0.1f) {
+        // 小幅运动：中等修正（悬停/慢速飞行）
+        kp_dynamic = g_kp * 3.0f;
+    }
+    else if (acc_error > 0.3f || acc_diff > 0.3f) {
+        // 剧烈加速：降低加速度计权重（避免误修正）
+        kp_dynamic = g_kp * 0.5f;
+    }
+    // 其他情况保持基础 Kp（正常飞行）
+    
+    g_acc_norm_prev = norm_acc;  // 更新上次模长
     
     // 归一化
     ax/=norm_acc; ay/=norm_acc; az/=norm_acc;
@@ -954,9 +981,9 @@ void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
         gz += g_ezInt;
     }
 
-    gx += g_kp * ex;
-    gy += g_kp * ey;
-    gz += g_kp * ez;
+    gx += kp_dynamic * ex;
+    gy += kp_dynamic * ey;
+    gz += kp_dynamic * ez;
 
     /*---------- 8) 四元数积分更新 ----------*/
     float halfDt = 0.5f * dt;
