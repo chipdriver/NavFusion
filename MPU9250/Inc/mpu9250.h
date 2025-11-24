@@ -75,6 +75,7 @@ typedef struct
  */
 extern EulerAngle_t g_euler_acc_mag;
 
+
 /**
  * @brief 使用加速度计 + 磁力计进行姿态解算（A+M → Roll/Pitch/Yaw）
  *
@@ -113,5 +114,51 @@ int MPU9250_Read_9Axis(MPU9250_raw_Data *mpu_raw,
                        AK8963_Physical_Data *ak_phys); //读取 MPU9250 九轴传感器的完整数据
 void MPU9250_CalibrateGyro(uint16_t samples, uint16_t delay_ms); //校准陀螺仪零偏       
 void MPU9250_CalibrateAccel(uint16_t samples, uint16_t delay_ms); //校准加速度计零偏  
-void AK8963_CalibrateMag(uint16_t samples, uint16_t delay_ms); //磁力计硬铁 + 软铁校准           
+void AK8963_CalibrateMag(uint16_t samples, uint16_t delay_ms); //磁力计硬铁 + 软铁校准          
+
+
+
+
+/*======================== 姿态融合（Mahony） ========================*/
+
+/**
+ * @brief 四元数结构体（Mahony 内部状态）
+ */
+typedef struct
+{
+    float q0;  // w
+    float q1;  // x
+    float q2;  // y
+    float q3;  // z
+} Quaternion_t;
+
+/**
+ * @brief 融合后的姿态角（单位：弧度）
+ */
+extern EulerAngle_t g_euler_fused;
+
+/**
+ * @brief Mahony 参数初始化
+ * @param kp 比例项，越大越信任 A/M（收敛快但可能更抖）
+ * @param ki 积分项，消除长时间漂移（一般先设 0）
+ */
+void MPU9250_MahonyInit(float kp, float ki);
+
+/**
+ * @brief Mahony 融合更新（每帧调用）
+ * @param imu 六轴物理量（g / dps）
+ * @param mag 磁力计物理量（uT，已校准）
+ * @param dt  采样周期（秒）
+ */
+void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
+                          const AK8963_Physical_Data *mag,
+                          float dt);
+
+/**
+ * @brief 获取融合后的姿态角（单位：度）
+ */
+void MPU9250_GetEulerFusedDeg(float *roll_deg, float *pitch_deg, float *yaw_deg);
+
+void MPU9250_MahonyUpdateIMU(const MPU9250_Physical_Data *imu, float dt);
+
 #endif /* __MPU9250_H__ */

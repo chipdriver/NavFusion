@@ -109,22 +109,37 @@ int main(void)
         while(1);  // 停止运行
     }
 
-    HAL_Delay(2000); // 拿起来准备校准磁力计
+    HAL_Delay(2000); 
 
-    AK8963_CalibrateMag(800, 10); // 磁力计硬铁 + 软铁校准
-
+    // 1. 先校准陀螺仪零偏（保持静止）
+    printf_uart6("开始陀螺仪零偏校准，请保持静止 3 秒...\n");
+    HAL_Delay(1000);
+    MPU9250_CalibrateGyro(300, 10); // 300次采样，10ms间隔，约3秒
+    printf_uart6("陀螺仪零偏校准完成！\n\n");
+    
+    // 2. 再校准磁力计（需要旋转，远离电子设备！）
+    printf_uart6("开始磁力计校准，请在开阔区域旋转设备（8字形）...\n");
+    HAL_Delay(1000);
+    AK8963_CalibrateMag(1000, 10); // 增加到1000次采样，确保覆盖所有方向
     printf_uart6("磁力计校准完成！\n\n");
+    
+    // 3. 初始化 Mahony 滤波器（优化后的参数 + Anti-windup + 磁力计门控）
+    MPU9250_MahonyInit(0.3f, 0.0f); // Kp=0.3, Ki=0（先关闭积分，测试纯 P 控制）
+    printf_uart6("Mahony 滤波器初始化完成 (Kp=0.3, Ki=0.0)\n");
+    printf_uart6("优化项：Anti-windup + 磁力计门控\n\n");
+    
     float roll_deg, pitch_deg, yaw_deg;
     
 
-    /* 数据结构体 */
-    MPU9250_raw_Data mpu_raw;
-    MPU9250_Physical_Data mpu_phys;
-    AK8963_raw_Data ak_raw;
-    AK8963_Physical_Data ak_phys;
+  /* 数据结构体 */
+  MPU9250_raw_Data mpu_raw;
+  MPU9250_Physical_Data mpu_phys;
+  AK8963_raw_Data ak_raw;
+  AK8963_Physical_Data ak_phys;
 
-    uint32_t count = 0;
-
+  uint32_t mag_fail_count = 0;  // 统计磁力计失败次数
+  uint32_t print_count = 0;     // 控制打印频率
+  uint32_t mag_success_count = 0; // 统计磁力计成功次数
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -133,15 +148,50 @@ int main(void)
   {
     /* USER CODE END WHILE */
     //AT_GNSS_GetLocation();//获取经纬度信息
-    /* ========== 读取九轴数据 ========== */
-    MPU9250_Read_9Axis(&mpu_raw, &mpu_phys, &ak_raw, &ak_phys);
-    
-    MPU9250_ComputeEuler_FromAccMag(&mpu_phys, &ak_phys);
 
-    MPU9250_GetEulerDeg(&roll_deg, &pitch_deg, &yaw_deg);
-    printf_uart6("初始姿态角：R:%.1f° P:%.1f° Y:%.1f°\n\n", roll_deg, pitch_deg, yaw_deg);
+    /* ========== 读取九轴数据 ========== */
+    int ret = MPU9250_Read_9Axis(&mpu_raw, &mpu_phys, &ak_raw, &ak_phys);
+
+    float dt = 0.005f; // 5ms 采样间隔
+    
+    if (ret == 0)
+    {
+        // 磁力计有效 → 9轴 Mahony
+        MPU9250_MahonyUpdate(&mpu_phys, &ak_phys, dt);
+        mag_fail_count = 0; // 重置失败计数
+        mag_success_count++;
+    }
+    else
+    {
+        // 磁力计无效 → 用 6轴 Mahony
+        MPU9250_MahonyUpdateIMU(&mpu_phys, dt);
+        mag_fail_count++;
         
-    HAL_Delay(500);  // 每 500ms 读取一次
+        // 磁力计连续失败 100 次后打印警告（0.5秒）
+        if (mag_fail_count == 100) {
+            printf_uart6("警告：磁力计持续失败，使用6轴融合！\n");
+            mag_fail_count = 0; // 重置避免重复打印
+        }
+    }
+
+    // 输出融合后的欧拉角（每 200ms 打印一次，减少串口负载）
+    if (++print_count >= 40) { // 40 * 5ms = 200ms
+        MPU9250_GetEulerFusedDeg(&roll_deg, &pitch_deg, &yaw_deg);
+        
+        // 【诊断模式】打印姿态角（静置时观察是否稳定）
+        printf_uart6("姿态角：R:%.1f° P:%.1f° Y:%.1f° [Mag:%s]\n",
+                     roll_deg, pitch_deg, yaw_deg,
+                     (ret == 0) ? "OK" : "FAIL");
+        print_count = 0;
+        
+        // 每 10 秒重置统计
+        if (mag_success_count + mag_fail_count >= 2000) {
+            mag_success_count = 0;
+            mag_fail_count = 0;
+        }
+    }
+
+    HAL_Delay(5);   // 约 200Hz
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

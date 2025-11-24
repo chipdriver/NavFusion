@@ -334,10 +334,10 @@ int MPU9250_9Axis_Init(void)
     // 3.7 进入连续测量模式 2（16-bit 输出，100Hz 采样率）
     AK8963_EnterContinuousMeasurementMode();
 
+    // 注意：校准应该在 main.c 中手动调用，不在初始化函数内部自动执行
+    // MPU9250_CalibrateGyro(500, 10); // 已移到 main.c
+    // MPU9250_CalibrateAccel(300, 5); // 已移到 main.c
     
-    MPU9250_CalibrateGyro(500, 10); //校准陀螺仪零偏，采样500次，每次间隔10ms
-    
-    MPU9250_CalibrateAccel(300, 5); //校准加速度计零偏，采样300次，每次间隔5ms
     return 0;  // 初始化成功
 }
 
@@ -825,3 +825,235 @@ void MPU9250_GetEulerDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
         *yaw_deg   = g_euler_acc_mag.yaw   * rad2deg;
 }
 
+/*=================================================================================姿态融合====================================================================================================*/
+
+// 融合后的欧拉角（rad）
+EulerAngle_t g_euler_fused = {0.0f, 0.0f, 0.0f};
+
+// 当前四元数状态（初始为单位四元数）
+static Quaternion_t g_q = {1.0f, 0.0f, 0.0f, 0.0f};
+
+// 误差积分项（积分反馈用）
+static float g_exInt = 0.0f, g_eyInt = 0.0f, g_ezInt = 0.0f;
+
+// Mahony 参数
+static float g_kp = 2.0f;
+static float g_ki = 0.0f;
+
+void MPU9250_MahonyInit(float kp, float ki)
+{
+    g_kp = kp;
+    g_ki = ki;
+
+    // 重置四元数与积分项
+    g_q.q0 = 1.0f; g_q.q1 = g_q.q2 = g_q.q3 = 0.0f;
+    g_exInt = g_eyInt = g_ezInt = 0.0f;
+
+    g_euler_fused.roll = g_euler_fused.pitch = g_euler_fused.yaw = 0.0f;
+}
+
+/**
+ * @brief Mahony 融合更新
+ */
+void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
+                          const AK8963_Physical_Data *mag,
+                          float dt)
+{
+    /*---------- 1) 统一到机体系（X前 Y右 Z下） ----------*/
+    // 按你已验证通过的转换（与 A+M 解算保持一致）
+    float ax =  imu->accel_x_g;
+    float ay = -imu->accel_y_g;
+    float az =  imu->accel_z_g;
+
+    // 陀螺同轴同方向：先按同样规则转换
+    const float deg2rad = 0.01745329252f;
+    float gx =  imu->gyro_x_dps * deg2rad;
+    float gy = -imu->gyro_y_dps * deg2rad;
+    float gz =  imu->gyro_z_dps * deg2rad;
+
+    // 磁力计保持与你 yaw 解算一致的符号（Y/Z 取反）
+    float mx =  mag->mag_x_ut;
+    float my = -mag->mag_y_ut;
+    float mz = -mag->mag_z_ut;
+
+    /*---------- 2) 归一化 accel / mag（保留原始模长用于门控）---------- */
+    float norm_acc = sqrtf(ax*ax + ay*ay + az*az);
+    if (norm_acc < 1e-6f) return;  // 加速度异常（自由落体等）
+    
+    float norm_mag = sqrtf(mx*mx + my*my + mz*mz);
+    if (norm_mag < 1e-6f) return;  // 磁场异常
+    
+    // 归一化
+    ax/=norm_acc; ay/=norm_acc; az/=norm_acc;
+    mx/=norm_mag; my/=norm_mag; mz/=norm_mag;
+
+    /*---------- 3) 取当前四元数 ----------*/
+    float q0=g_q.q0, q1=g_q.q1, q2=g_q.q2, q3=g_q.q3;
+
+    /*---------- 4) 预测重力方向 v ----------*/
+    float vx = 2.0f*(q1*q3 - q0*q2);
+    float vy = 2.0f*(q0*q1 + q2*q3);
+    float vz = q0*q0 - q1*q1 - q2*q2 + q3*q3;
+
+    /*---------- 5) 预测地磁方向 w ----------*/
+    float hx = 2.0f*mx*(0.5f - q2*q2 - q3*q3)
+             + 2.0f*my*(q1*q2 - q0*q3)
+             + 2.0f*mz*(q1*q3 + q0*q2);
+    float hy = 2.0f*mx*(q1*q2 + q0*q3)
+             + 2.0f*my*(0.5f - q1*q1 - q3*q3)
+             + 2.0f*mz*(q2*q3 - q0*q1);
+    float hz = 2.0f*mx*(q1*q3 - q0*q2)
+             + 2.0f*my*(q2*q3 + q0*q1)
+             + 2.0f*mz*(0.5f - q1*q1 - q2*q2);
+
+    float bx = sqrtf(hx*hx + hy*hy);
+    float bz = hz;
+
+    float wx = 2.0f*bx*(0.5f - q2*q2 - q3*q3)
+             + 2.0f*bz*(q1*q3 - q0*q2);
+    float wy = 2.0f*bx*(q1*q2 - q0*q3)
+             + 2.0f*bz*(q0*q1 + q2*q3);
+    float wz = 2.0f*bx*(q0*q2 + q1*q3)
+             + 2.0f*bz*(0.5f - q1*q1 - q2*q2);
+
+    /*---------- 6) 误差 e = 观测 × 预测 ----------*/
+    // 重力误差（总是使用）
+    float ex = (ay*vz - az*vy);
+    float ey = (az*vx - ax*vz);
+    float ez = (ax*vy - ay*vx);
+
+    // 地磁误差（带门控：仅当磁场强度合理时才使用）
+    float mag_norm = sqrtf(mx*mx + my*my + mz*mz);
+    const float MAG_MIN = 0.25f;  // 地磁场合理范围 25~65 μT（归一化后 0.25~0.65）
+    const float MAG_MAX = 0.65f;
+    
+    if (mag_norm > MAG_MIN && mag_norm < MAG_MAX) {
+        // 磁场强度合理，使用磁力计修正
+        ex += (my*wz - mz*wy);
+        ey += (mz*wx - mx*wz);
+        ez += (mx*wy - my*wx);
+    }
+    // 否则，只使用加速度计修正（不使用磁力计）
+
+    /*---------- 7) PI 反馈修正陀螺（带 Anti-windup）---------- */
+    if (g_ki > 0.0f)
+    {
+        // 积分项累加
+        g_exInt += ex * g_ki * dt;
+        g_eyInt += ey * g_ki * dt;
+        g_ezInt += ez * g_ki * dt;
+
+        // Anti-windup：限制积分项幅度（防止积分饱和）
+        const float INT_LIM = 0.1f;  // 积分限幅 ±0.1 rad/s
+        g_exInt = fminf(fmaxf(g_exInt, -INT_LIM), INT_LIM);
+        g_eyInt = fminf(fmaxf(g_eyInt, -INT_LIM), INT_LIM);
+        g_ezInt = fminf(fmaxf(g_ezInt, -INT_LIM), INT_LIM);
+
+        gx += g_exInt;
+        gy += g_eyInt;
+        gz += g_ezInt;
+    }
+
+    gx += g_kp * ex;
+    gy += g_kp * ey;
+    gz += g_kp * ez;
+
+    /*---------- 8) 四元数积分更新 ----------*/
+    float halfDt = 0.5f * dt;
+
+    q0 += (-q1*gx - q2*gy - q3*gz) * halfDt;
+    q1 += ( q0*gx + q2*gz - q3*gy) * halfDt;
+    q2 += ( q0*gy - q1*gz + q3*gx) * halfDt;
+    q3 += ( q0*gz + q1*gy - q2*gx) * halfDt;
+
+    float norm_q = sqrtf(q0*q0 + q1*q1 + q2*q2 + q3*q3);
+    if (norm_q < 1e-6f) return;
+
+    g_q.q0=q0/norm_q; g_q.q1=q1/norm_q; g_q.q2=q2/norm_q; g_q.q3=q3/norm_q;
+
+    /*---------- 9) 四元数 → 欧拉角 ----------*/
+    q0=g_q.q0; q1=g_q.q1; q2=g_q.q2; q3=g_q.q3;
+
+    g_euler_fused.roll  = atan2f(2*(q0*q1 + q2*q3),
+                                 1 - 2*(q1*q1 + q2*q2));
+    g_euler_fused.pitch = asinf (2*(q0*q2 - q3*q1));
+    g_euler_fused.yaw   = atan2f(2*(q0*q3 + q1*q2),
+                                 1 - 2*(q2*q2 + q3*q3));
+}
+
+void MPU9250_MahonyUpdateIMU(const MPU9250_Physical_Data *imu, float dt)
+{
+    /*---------- 1) 统一到机体系（X前 Y右 Z下） ----------*/
+    float ax =  imu->accel_x_g;
+    float ay = -imu->accel_y_g;
+    float az =  imu->accel_z_g;
+
+    const float deg2rad = 0.01745329252f;
+    float gx =  imu->gyro_x_dps * deg2rad;
+    float gy = -imu->gyro_y_dps * deg2rad;
+    float gz =  imu->gyro_z_dps * deg2rad;
+
+    /*---------- 2) 归一化 accel ----------*/
+    float norm = sqrtf(ax*ax + ay*ay + az*az);
+    if (norm < 1e-6f) return;
+    ax/=norm; ay/=norm; az/=norm;
+
+    /*---------- 3) 当前四元数 ----------*/
+    float q0=g_q.q0, q1=g_q.q1, q2=g_q.q2, q3=g_q.q3;
+
+    /*---------- 4) 预测重力方向 v ----------*/
+    float vx = 2.0f*(q1*q3 - q0*q2);
+    float vy = 2.0f*(q0*q1 + q2*q3);
+    float vz = q0*q0 - q1*q1 - q2*q2 + q3*q3;
+
+    /*---------- 5) 重力误差 e = a × v ----------*/
+    float ex = (ay*vz - az*vy);
+    float ey = (az*vx - ax*vz);
+    float ez = (ax*vy - ay*vx);
+
+    /*---------- 6) PI 反馈修正陀螺 ----------*/
+    if (g_ki > 0.0f)
+    {
+        g_exInt += ex * g_ki * dt;
+        g_eyInt += ey * g_ki * dt;
+        g_ezInt += ez * g_ki * dt;
+
+        gx += g_exInt;
+        gy += g_eyInt;
+        gz += g_ezInt;
+    }
+
+    gx += g_kp * ex;
+    gy += g_kp * ey;
+    gz += g_kp * ez;
+
+    /*---------- 7) 四元数积分更新 ----------*/
+    float halfDt = 0.5f * dt;
+
+    q0 += (-q1*gx - q2*gy - q3*gz) * halfDt;
+    q1 += ( q0*gx + q2*gz - q3*gy) * halfDt;
+    q2 += ( q0*gy - q1*gz + q3*gx) * halfDt;
+    q3 += ( q0*gz + q1*gy - q2*gx) * halfDt;
+
+    norm = sqrtf(q0*q0 + q1*q1 + q2*q2 + q3*q3);
+    if (norm < 1e-6f) return;
+
+    g_q.q0=q0/norm; g_q.q1=q1/norm; g_q.q2=q2/norm; g_q.q3=q3/norm;
+
+    /*---------- 8) 四元数 → 欧拉角 ----------*/
+    q0=g_q.q0; q1=g_q.q1; q2=g_q.q2; q3=g_q.q3;
+
+    g_euler_fused.roll  = atan2f(2*(q0*q1 + q2*q3),
+                                 1 - 2*(q1*q1 + q2*q2));
+    g_euler_fused.pitch = asinf (2*(q0*q2 - q3*q1));
+    g_euler_fused.yaw   = atan2f(2*(q0*q3 + q1*q2),
+                                 1 - 2*(q2*q2 + q3*q3));
+}
+
+void MPU9250_GetEulerFusedDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
+{
+    const float rad2deg = 57.295779513f;
+    if (roll_deg)  *roll_deg  = g_euler_fused.roll  * rad2deg;
+    if (pitch_deg) *pitch_deg = g_euler_fused.pitch * rad2deg; 
+    if (yaw_deg)   *yaw_deg   = g_euler_fused.yaw   * rad2deg;
+}
