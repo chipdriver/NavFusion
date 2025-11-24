@@ -27,6 +27,7 @@
 /* USER CODE BEGIN Includes */
 #include "a7670e.h"
 #include "i2c.h"
+#include "mpu9250.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -93,7 +94,37 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART6_UART_Init();
   /* USER CODE BEGIN 2 */
-  AT_Getlocation_Init(); //初始化4G和GNSS模块
+  /*A7076EandGNSS*/
+  //AT_Getlocation_Init(); //初始化4G和GNSS模块
+    /*MPU9250*/
+    /* ========== 初始化 MPU9250 九轴传感器 ========== */
+    int init_ret = MPU9250_9Axis_Init();
+    if (init_ret == 0)
+    {
+        printf_uart6("MPU9250 初始化成功！\n\n");
+    }
+    else
+    {
+        printf_uart6("MPU9250 初始化失败！错误码：%d\n", init_ret);
+        while(1);  // 停止运行
+    }
+
+    HAL_Delay(2000); // 拿起来准备校准磁力计
+
+    AK8963_CalibrateMag(800, 10); // 磁力计硬铁 + 软铁校准
+
+    printf_uart6("磁力计校准完成！\n\n");
+    float roll_deg, pitch_deg, yaw_deg;
+    
+
+    /* 数据结构体 */
+    MPU9250_raw_Data mpu_raw;
+    MPU9250_Physical_Data mpu_phys;
+    AK8963_raw_Data ak_raw;
+    AK8963_Physical_Data ak_phys;
+
+    uint32_t count = 0;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -101,9 +132,16 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-    AT_GNSS_GetLocation();
+    //AT_GNSS_GetLocation();//获取经纬度信息
+    /* ========== 读取九轴数据 ========== */
+    MPU9250_Read_9Axis(&mpu_raw, &mpu_phys, &ak_raw, &ak_phys);
+    
+    MPU9250_ComputeEuler_FromAccMag(&mpu_phys, &ak_phys);
 
-    HAL_Delay(1000);
+    MPU9250_GetEulerDeg(&roll_deg, &pitch_deg, &yaw_deg);
+    printf_uart6("初始姿态角：R:%.1f° P:%.1f° Y:%.1f°\n\n", roll_deg, pitch_deg, yaw_deg);
+        
+    HAL_Delay(500);  // 每 500ms 读取一次
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */

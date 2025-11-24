@@ -18,6 +18,8 @@
         "usart.h": "c",
         "stm32f4xx_hal_uart.h": "c",
         "stdio.h": "c",
-        "gpio.h": "c"
+        "gpio.h": "c",
+        "i2c.h": "c",
+        "stm32f4xx.h": "c"
     }
 }

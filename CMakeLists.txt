@@ -46,6 +46,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     A7670E/Src/a7670e.c
     MPU9250/Src/i2c.c
+    MPU9250/Src/mpu9250.c
     # Add user sources here
 )
 
@@ -69,4 +70,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+)
+
+# ========== 添加浮点数打印支持 ==========
+# 使能 printf/scanf 的浮点数格式化
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -Wl,-u,_printf_float   # 使能 printf 浮点数支持
 )
