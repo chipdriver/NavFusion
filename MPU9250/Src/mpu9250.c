@@ -5,19 +5,21 @@
 
 
 //磁力计的原始ASA以及换算后的灵敏度调整系数
-uint8_t g_ak8963_asa[3];        //存放原始ASA值
-float g_ak8963_sensitivity[3];  //存放换算后的灵敏度调整系数
-float g_gyro_bias_dps[3] = {0.0f, 0.0f, 0.0f};   //陀螺仪零偏（单位：°/s）
-float g_accel_bias_g[3] = {0.0f, 0.0f, 0.0f};    //加速度计零偏（单位：g）
-float g_mag_offset[3] = {0.0f, 0.0f, 0.0f};      // 磁力计硬铁偏置（单位：μT）
-float g_mag_scale[3] = {1.0f, 1.0f, 1.0f};       // 磁力计软铁缩放（单位：比例因子）
-EulerAngle_t g_euler_acc_mag = {0.0f, 0.0f, 0.0f}; // 由加速度计+磁力计解算得到的姿态角（单位：弧度）
-/*======================== 初始化MPU9250 ========================*/
+uint8_t g_ak8963_asa[3]; //存放原始ASA值
+float g_ak8963_sensitivity[3]; //存放换算后的灵敏度调整系数
+float g_gyro_bias_dps[3]= {0.0f, 0.0f, 0.0f};//陀螺仪零偏（单位：°/s）
+float g_accel_bias_g[3] = {0.0f, 0.0f, 0.0f}; //加速度计零偏（单位：g）
+float g_mag_offset[3] = {0.0f, 0.0f, 0.0f}; // 磁力计硬铁偏置（单位：μT）
+float g_mag_scale[3] = {1.0f, 1.0f, 1.0f}; // 磁力计软铁缩放（单位：比例因子）
+EulerAngle_t g_euler_acc_mag = {0.0f, 0.0f, 0.0f};// 由加速度计 + 磁力计解算得到的姿态角（单位：弧度）
+/*========================================================================初始化MPU9250======================================================================================*/
 
-/*------------------------ 六轴初始化所需函数 ------------------------*/
+/*-----------------------------------六轴的初始化所需函数---------------------------------------*/
 
 /**
  * @brief 1.软复位
+ * @param None
+ * @return None
  */
 void MPU9250_SoftReset(void)
 {
@@ -32,7 +34,9 @@ void MPU9250_SoftReset(void)
 
 
 /**
- * @brief 2.唤醒并设置时钟源
+ * @brief 2.将唤醒以及设置时钟源
+ * @param None
+ * @return None
  */
 void mpu_set_clock_to_auto(void)
 {
@@ -136,7 +140,7 @@ void mpu_set_accel_range(void)
     I2C_WriteReg(MPU9250_I2C_ADDR7, 0X1CU, val);
 }
 
-/*------------------------ 磁力计初始化所需函数 ------------------------*/
+/*-----------------------------------地磁计的初始化所需函数---------------------------------------*/
 
 /**
  * @brief 1.配置AK8963为MCU可直接访问的方式
@@ -337,7 +341,7 @@ int MPU9250_9Axis_Init(void)
     return 0;  // 初始化成功
 }
 
-/*======================== 读取MPU9250数据 ========================*/
+/*========================================================================读取MPU9250数据======================================================================================*/
 
 /**
  * @brief 读取 MPU9250 的 16 位寄存器值
@@ -373,7 +377,7 @@ void MPU9250_Read_six_Axis(MPU9250_raw_Data * raw)
 /**
  * @brief 将读取的MPU9250原始数据转换成物理量
  * @param raw 指向原始数据结构体的指针
- * @param physical 指向物理量数据结构体的指针
+ * @param None
  */
 void MPU9250_ConvertToPhysical(const MPU9250_raw_Data * raw, MPU9250_Physical_Data * physical)
 {
@@ -555,12 +559,13 @@ int MPU9250_Read_9Axis(MPU9250_raw_Data *mpu_raw,
     return 0;  // 成功
 }
 
-/*======================== 校准功能函数 ========================*/
+/*=========================================================================校准================================================================================*/
 
 /**
- * @brief 校准陀螺仪零偏（需要保持静止）
- * @param samples   采样次数
- * @param delay_ms  每次采样间隔时间（单位：毫秒）
+ * @brief 设置陀螺仪零偏
+ * @param samples 校准采样次数
+ * @return delay_ms 每次采样间隔时间（单位：毫秒）
+ * @return None
  * @note 调用该函数时，MPU9250必须保持静止
  */
 void MPU9250_CalibrateGyro(uint16_t samples, uint16_t delay_ms)
@@ -596,10 +601,10 @@ void MPU9250_CalibrateGyro(uint16_t samples, uint16_t delay_ms)
 }
 
 /**
- * @brief 校准加速度计零偏（静止水平放置）
- * @param samples   采样次数（建议 200~500）
- * @param delay_ms  采样间隔（ms）
- * @note 调用该函数时，MPU9250必须保持水平静止，Z轴朝上
+ * @brief  简单加速度计偏置校准（静止水平放置）
+ * @param  samples   采样次数（建议 200~500）
+ * @param  delay_ms  采样间隔（ms）
+ * @note   调用该函数时，MPU9250 必须保持水平静止，Z 轴朝上
  */
 void MPU9250_CalibrateAccel(uint16_t samples, uint16_t delay_ms)
 {
@@ -652,10 +657,8 @@ int AK8963_Read_Mag_UT(AK8963_Physical_Data *mag_out)
 }
 
 /**
- * @brief 磁力计硬铁+软铁校准
- * @param samples   采样次数
- * @param delay_ms  每次采样间隔（ms）
- * @note 采集samples次数据，期间需要手动旋转模块（尽量覆盖所有方向）
+ * @brief  磁力计硬铁 + 软铁校准
+ * @note   采集 samples 次数据，期间需要手动旋转模块（尽量覆盖所有方向）
  */
 void AK8963_CalibrateMag(uint16_t samples, uint16_t delay_ms)
 {
@@ -700,7 +703,7 @@ void AK8963_CalibrateMag(uint16_t samples, uint16_t delay_ms)
     g_mag_scale[2] = radius_avg / radius_z;
 }
 
-/*======================== 姿态解算功能 ========================*/
+/*=================================================================================姿态解算====================================================================================================*/
 /**
  * @brief 使用加速度计 + 磁力计进行姿态解算
  *
@@ -801,10 +804,12 @@ void MPU9250_ComputeEuler_FromAccMag(const MPU9250_Physical_Data *imu,
 
 /**
  * @brief 获取当前姿态角（单位：度）
+ *
  * @param roll_deg  输出横滚角（deg）
  * @param pitch_deg 输出俯仰角（deg）
  * @param yaw_deg   输出航向角（deg）
- * @note 方便上位机/串口打印使用，内部直接从 g_euler_acc_mag 转换
+ *
+ * @note  方便上位机/串口打印使用，内部直接从 g_euler_acc_mag 转换。
  */
 void MPU9250_GetEulerDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
 {
@@ -820,7 +825,7 @@ void MPU9250_GetEulerDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
         *yaw_deg   = g_euler_acc_mag.yaw   * rad2deg;
 }
 
-/*======================== 姿态融合功能 ========================*/
+/*=================================================================================姿态融合====================================================================================================*/
 
 // 融合后的欧拉角（rad）
 EulerAngle_t g_euler_fused = {0.0f, 0.0f, 0.0f};
@@ -838,11 +843,6 @@ static float g_ki = 0.0f;
 // 静态零偏抑制参数
 static float g_acc_norm_prev = 1.0f;  // 上一次加速度模长
 
-/**
- * @brief Mahony算法参数初始化
- * @param kp 比例项，越大越信任A/M（收敛快但可能更抖）
- * @param ki 积分项，消除长时间漂移（一般先设0）
- */
 void MPU9250_MahonyInit(float kp, float ki)
 {
     g_kp = kp;
@@ -857,17 +857,14 @@ void MPU9250_MahonyInit(float kp, float ki)
 }
 
 /**
- * @brief Mahony九轴融合更新（每帧调用）
- * @param imu 六轴物理量（g / dps）
- * @param mag 磁力计物理量（uT，已校准）
- * @param dt  采样周期（秒）
+ * @brief Mahony 融合更新
  */
 void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
                           const AK8963_Physical_Data *mag,
                           float dt)
 {
     /*---------- 1) 统一到机体系（X前 Y右 Z下） ----------*/
-    // 按已验证通过的转换（与 A+M 解算保持一致）
+    // 按你已验证通过的转换（与 A+M 解算保持一致）
     float ax =  imu->accel_x_g;
     float ay = -imu->accel_y_g;
     float az =  imu->accel_z_g;
@@ -878,7 +875,7 @@ void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
     float gy = -imu->gyro_y_dps * deg2rad;
     float gz =  imu->gyro_z_dps * deg2rad;
 
-    // 磁力计保持与 yaw 解算一致的符号（Y/Z 取反）
+    // 磁力计保持与你 yaw 解算一致的符号（Y/Z 取反）
     float mx =  mag->mag_x_ut;
     float my = -mag->mag_y_ut;
     float mz = -mag->mag_z_ut;
@@ -1011,12 +1008,6 @@ void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
                                  1 - 2*(q2*q2 + q3*q3));
 }
 
-
-/**
- * @brief Mahony六轴融合更新（无磁力计时使用）
- * @param imu 六轴物理量（g / dps）
- * @param dt  采样周期（秒）
- */
 void MPU9250_MahonyUpdateIMU(const MPU9250_Physical_Data *imu, float dt)
 {
     /*---------- 1) 统一到机体系（X前 Y右 Z下） ----------*/
@@ -1086,13 +1077,6 @@ void MPU9250_MahonyUpdateIMU(const MPU9250_Physical_Data *imu, float dt)
                                  1 - 2*(q2*q2 + q3*q3));
 }
 
-
-/**
- * @brief 获取Mahony融合后的姿态角（单位：度）
- * @param roll_deg  输出 roll 角（度）
- * @param pitch_deg 输出 pitch 角（度）
- * @param yaw_deg   输出 yaw 角（度）
- */
 void MPU9250_GetEulerFusedDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
 {
     const float rad2deg = 57.295779513f;

@@ -1,28 +1,57 @@
- #ifndef __I2C_H__
- #define __I2C_H__
+ /**
+ ******************************************************************************
+ * @file    i2c.h
+ * @brief   软件模拟 I2C 协议头文件
+ * @note    使用 GPIO（PB6=SCL, PB7=SDA）模拟 I2C 总线通信
+ ******************************************************************************
+ */
 
-//头文件
+#ifndef __I2C_H__
+#define __I2C_H__
+
+/*==============================================================================
+ *                           头文件包含
+ *============================================================================*/
 #include "stm32f4xx.h"
 
-//宏定义
-#define SCL_H()  (GPIOB->BSRR = (1 << 6))      //PB6置高
-#define SCL_L()  (GPIOB->BSRR = (1 << (6 + 16))) //PB6置低
-#define SDA_H()  (GPIOB->BSRR = (1 << 7))      //PB7置高
-#define SDA_L()  (GPIOB->BSRR = (1 << (7 + 16))) //PB7置低
-#define SDA_READ() ( GPIOB->IDR & (1 << 7) ) //读取PB7状态
-#define SCL_READ() ( GPIOB->IDR & (1 << 6) ) //读取PB6状态
+/*==============================================================================
+ *                           GPIO 引脚定义
+ *============================================================================*/
+/* I2C 引脚配置：
+ *   SCL -> PB6
+ *   SDA -> PB7
+ */
 
+/*==============================================================================
+ *                           GPIO 操作宏定义
+ *============================================================================*/
+/* SCL 控制宏 */
+#define SCL_H()      (GPIOB->BSRR = (1 << 6))         // PB6 置高
+#define SCL_L()      (GPIOB->BSRR = (1 << (6 + 16)))  // PB6 置低
+#define SCL_READ()   (GPIOB->IDR & (1 << 6))          // 读取 PB6 状态
 
-//函数声明
-void I2C_Start(void);
-void I2C_Stop(void);
-void I2C_SendByte(uint8_t data);
-uint8_t I2C_ReadByte(uint8_t send_ack);
-int I2C_WriteReg(uint8_t dev7, uint8_t reg, uint8_t val);
-uint8_t I2C_ReadReg(uint8_t dev7, uint8_t reg);
-uint8_t I2C_WaitAck(void);
-void I2C_SendACK(void);
-void I2C_NACK(void);
+/* SDA 控制宏 */
+#define SDA_H()      (GPIOB->BSRR = (1 << 7))         // PB7 置高
+#define SDA_L()      (GPIOB->BSRR = (1 << (7 + 16)))  // PB7 置低
+#define SDA_READ()   (GPIOB->IDR & (1 << 7))          // 读取 PB7 状态
 
+/*==============================================================================
+ *                           函数声明
+ *============================================================================*/
 
- #endif /* __I2C_H__ */
+/* 基础操作函数 */
+void    I2C_Start(void);                  // 产生 I2C 起始条件
+void    I2C_Stop(void);                   // 产生 I2C 停止条件
+uint8_t I2C_WaitAck(void);                // 等待从机应答（0=ACK, 1=NACK）
+void    I2C_SendACK(void);                // 主机发送 ACK
+void    I2C_NACK(void);                   // 主机发送 NACK
+
+/* 字节级操作函数 */
+void    I2C_SendByte(uint8_t data);       // 发送 1 字节数据
+uint8_t I2C_ReadByte(uint8_t send_ack);   // 读取 1 字节数据（0=ACK, 1=NACK）
+
+/* 寄存器级操作函数 */
+int     I2C_WriteReg(uint8_t dev7, uint8_t reg, uint8_t val);  // 写寄存器
+uint8_t I2C_ReadReg(uint8_t dev7, uint8_t reg);                // 读寄存器
+
+#endif /* __I2C_H__ */

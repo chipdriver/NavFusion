@@ -1,96 +1,110 @@
+/**
+ ******************************************************************************
+ * @file    i2c.c
+ * @brief   软件模拟 I2C 协议实现（GPIO 位操作）
+ * @note    适用于 STM32 平台，支持标准 I2C 通信协议
+ ******************************************************************************
+ */
+
 #include "i2c.h"
 
-
-/*static函数声明*/
+/*==============================================================================
+ *                           私有函数声明
+ *============================================================================*/
+static void    I2C_Delay(void);
+static void    I2C_SendBit(uint8_t bit);
 static uint8_t I2C_ReadBit(void);
-static void I2C_SendBit(uint8_t bit);
-static void I2C_Delay(void);
 
+/*==============================================================================
+ *                           私有函数实现
+ *============================================================================*/
 
 /**
- * @brief 简单延时函数
+ * @brief  简单延时函数（用于 I2C 时序控制）
  * @param  None
  * @return None
+ * @note   延时时间约为 10us（100MHz 主频下），可根据实际需求调整
  */
 static void I2C_Delay(void)
 {
-    for(volatile int i = 0; i < 100; i++);
+    for (volatile int i = 0; i < 100; i++);
 }
 
+/*==============================================================================
+ *                           公共函数实现
+ *============================================================================*/
+
 /**
- * @brief Start I2C communication
+ * @brief  产生 I2C 起始条件（START）
  * @param  None
  * @return None
- * @note 根据I2C协议：当 SCL 为高电平时，SDA 从高到低，就产生了 START 条件
+ * @note   I2C 协议：当 SCL 为高电平时，SDA 从高到低跳变 → 产生 START 条件
  */
 void I2C_Start(void)
 {
-    //1.设置初始状态
-    SDA_H();      // 1️⃣ SDA 置高（确保初始状态）
-    SCL_H();      // 2️⃣ SCL 置高（准备产生 START）
+    // 1. 设置初始状态
+    SDA_H();      // SDA 置高（确保初始状态）
+    SCL_H();      // SCL 置高（准备产生 START）
+    I2C_Delay();  // 延时，保持稳定状态
 
-    //2.延时
-    I2C_Delay();  // 3️⃣ 延时，保持稳定状态
+    // 2. 产生 START 条件
+    SDA_L();      // SDA 拉低 → 产生 START 条件！
+    I2C_Delay();  // 延时，保持 START 条件
 
-    //3.产生START条件
-    SDA_L();      // 4️⃣ SDA 拉低 → 产生 START 条件！
-
-    //4.延时
-    I2C_Delay();  // 5️⃣ 延时，保持 START 条件
-
-    //5.准备传输数据
-    SCL_L();      // 6️⃣ SCL 拉低，准备传输数据
+    // 3. 准备传输数据
+    SCL_L();      // SCL 拉低，准备传输数据
 }
 
 /**
- * @brief Stop I2C communication
+ * @brief  产生 I2C 停止条件（STOP）
  * @param  None
  * @return None
- * @note According to the I2C protocol：当 SCL 为高电平时，SDA 从低电平变为高电平，就产生了 STOP 条件
+ * @note   I2C 协议：当 SCL 为高电平时，SDA 从低到高跳变 → 产生 STOP 条件
  */
 void I2C_Stop(void)
 {
-    //1.准备停止条件
-    SCL_L();      // 1️⃣ SCL 拉低，准备停止条件
-    SDA_L();      // 2️⃣ SDA 拉低，保持数据有效
-    I2C_Delay();  // 3️⃣ 延时，保持稳定状态
+    // 1. 准备停止条件
+    SCL_L();      // SCL 拉低，准备停止条件
+    SDA_L();      // SDA 拉低，保持数据有效
+    I2C_Delay();  // 延时，保持稳定状态
 
-    //2.产生STOP条件
-    SCL_H();      // 4️⃣ SCL 置高，产生 STOP 条件
-    I2C_Delay();  // 5️⃣ 延时，确保 SCL 稳定
-    SDA_H();      // 6️⃣ SDA 置高，释放总线
+    // 2. 产生 STOP 条件
+    SCL_H();      // SCL 置高，产生 STOP 条件
+    I2C_Delay();  // 延时，确保 SCL 稳定
+    SDA_H();      // SDA 置高，释放总线
 
-    //3.延时
-    I2C_Delay();  // 7️⃣ 延时，确保 STOP 条件被识别
+    // 3. 延时
+    I2C_Delay();  // 延时，确保 STOP 条件被识别
 }
 
 /**
- * @brief 发送 1 个数据位（主机驱动 SDA）。Send one data bit(master drivers SDA)
- * @param  bit 0/1
+ * @brief  发送 1 个数据位（主机驱动 SDA）
+ * @param  bit  要发送的位（0 或 1）
  * @return None
- * @note 协议要求：数据在 SCL 高电平期间保持稳定，供接收方采样读取；在 SCL 低电平期间切换 SDA，准备下一个数据位。data must remain stable during the SCL high period for the receiver to sample and read;
+ * @note   协议要求：
+ *         - 数据在 SCL 高电平期间保持稳定，供接收方采样读取
+ *         - 在 SCL 低电平期间切换 SDA，准备下一个数据位
  */
 static void I2C_SendBit(uint8_t bit)
 {
-    if(bit)
+    if (bit)
         SDA_H();
     else
         SDA_L();
 
     I2C_Delay();  // 等待数据稳定
-    SCL_H();    //the clock is raised,and the other part starts sampling.
+    SCL_H();      // 拉高时钟，对方开始采样
     I2C_Delay();  // 保持时钟高电平，确保数据被采样
-    SCL_L();    // 拉低时钟，准备发送下一个bit
-
+    SCL_L();      // 拉低时钟，准备发送下一个 bit
 }
 
 /**
- * @brief 接收 1 个数据位（从机驱动 SDA）。Receive one data bit(slave drivers SDA)
+ * @brief 接收 1 个数据位（从机驱动 SDA）
  * @param  None
  * @return 0/1
- * @note 协议要求：主机在 SCL 高电平期间采样 SDA；SDA 在该期间保持稳定。The master samples SDA during the SCL high period; SDA remains stable during this period.
- */
-static uint8_t I2C_ReadBit(void)
+ * @note 协议要求：主机在 SCL 高电平期间采样 SDA；SDA 在该期间保持稳定
+ **/
+static uint8_t I2C_ReadBit(void) 
 {
     SDA_H();    // 释放 SDA，总线由从机驱动
     I2C_Delay();  // 等待总线稳定
@@ -103,15 +117,15 @@ static uint8_t I2C_ReadBit(void)
 
 
 /**
- * @brief 发送 1 个字节数据（主机驱动 SDA）。Send one byte data(master drivers SDA)
- * @param  data: 要发送的数据
+ * @brief  发送 1 个字节数据（MSB→LSB）
+ * @param  data  要发送的数据
  * @return None
- * @note 协议要求：每发送 8 个数据位后，接收方在第 9 个 SCL 周期产生 ACK/NACK。
+ * @note   协议要求：每发送 8 个数据位后，接收方在第 9 个 SCL 周期产生 ACK/NACK
  */
 void I2C_SendByte(uint8_t data)
 {
-    for(int i =7; i>=0; i--)
-        I2C_SendBit( (data >> i) & 0x01);
+    for (int i = 7; i >= 0; i--)
+        I2C_SendBit((data >> i) & 0x01);
 }
 
 /**
@@ -125,14 +139,10 @@ uint8_t I2C_ReadByte(uint8_t send_ack)
     uint8_t data = 0;
     SDA_H();    // 释放 SDA，总线由从机驱动
 
-    for(int i = 7;i >= 0; i--)
+    for(int i = 0;i < 8; i++)
     {
-        I2C_Delay();  // 等待总线稳定
-        SCL_H();    // 拉高时钟，准备采样数据
-        I2C_Delay();  // 在 SCL 高电平期间采样
-        if(SDA_READ())
-            data |= (1 << i);  // 读取 SDA 状态，组装数据
-        SCL_L();    // 拉低时钟，准备下一个 bit
+        data <<= 1;
+        data |= I2C_ReadBit();  // 读取 SDA 状态，组装数据
         
     }
 
@@ -197,10 +207,10 @@ uint8_t I2C_ReadReg(uint8_t dev7, uint8_t reg)
 }
 
 /**
- * @brief 等待从机ACK wait for ACK from slave
+ * @brief  等待从机应答（ACK）
  * @param  None
- * @return 0:收到ACK 1:未收到ACK。
- * @note 协议要求：发送完 8 位后，发送方释放 SDA；接收方在第 9 个 SCL 高电平期间拉低 SDA 表示 ACK。protocol: after 8 bits,transmitter releases SDA;receiver pulls SDA low during 9th SCL high for ACK.
+ * @return 0=收到ACK，1=未收到ACK
+ * @note   协议要求：发送完 8 位后，发送方释放 SDA；接收方在第 9 个 SCL 高电平期间拉低 SDA 表示 ACK
  */
 uint8_t I2C_WaitAck(void)
 {
