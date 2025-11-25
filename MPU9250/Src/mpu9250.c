@@ -4,14 +4,21 @@
 #include "stm32f4xx_hal.h"
 
 
-//磁力计的原始ASA以及换算后的灵敏度调整系数
-uint8_t g_ak8963_asa[3]; //存放原始ASA值
-float g_ak8963_sensitivity[3]; //存放换算后的灵敏度调整系数
-float g_gyro_bias_dps[3]= {0.0f, 0.0f, 0.0f};//陀螺仪零偏（单位：°/s）
-float g_accel_bias_g[3] = {0.0f, 0.0f, 0.0f}; //加速度计零偏（单位：g）
-float g_mag_offset[3] = {0.0f, 0.0f, 0.0f}; // 磁力计硬铁偏置（单位：μT）
-float g_mag_scale[3] = {1.0f, 1.0f, 1.0f}; // 磁力计软铁缩放（单位：比例因子）
-EulerAngle_t g_euler_acc_mag = {0.0f, 0.0f, 0.0f};// 由加速度计 + 磁力计解算得到的姿态角（单位：弧度）
+/*======================== 全局变量定义 ========================*/
+
+// ========== AK8963磁力计相关参数 ==========
+uint8_t g_ak8963_asa[3];                                    // 存放原始ASA值
+float   g_ak8963_sensitivity[3];                            // 存放换算后的灵敏度调整系数
+
+// ========== 传感器校准参数 ==========
+float   g_gyro_bias_dps[3]  = {0.0f, 0.0f, 0.0f};         // 陀螺仪零偏（单位：°/s）
+float   g_accel_bias_g[3]   = {0.0f, 0.0f, 0.0f};         // 加速度计零偏（单位：g）
+float   g_mag_offset[3]     = {0.0f, 0.0f, 0.0f};         // 磁力计硬铁偏置（单位：μT）
+float   g_mag_scale[3]      = {1.0f, 1.0f, 1.0f};         // 磁力计软铁缩放（单位：比例因子）
+
+// ========== 姿态解算输出 ==========
+EulerAngle_t g_euler_acc_mag = {0.0f, 0.0f, 0.0f};        // 由加速度计+磁力计解算的姿态角（单位：弧度）
+
 /*========================================================================初始化MPU9250======================================================================================*/
 
 /*-----------------------------------六轴的初始化所需函数---------------------------------------*/
@@ -140,7 +147,28 @@ void mpu_set_accel_range(void)
     I2C_WriteReg(MPU9250_I2C_ADDR7, 0X1CU, val);
 }
 
-/*-----------------------------------地磁计的初始化所需函数---------------------------------------*/
+/**
+ * @brief 初始化 MPU9250 六轴传感器（加速度计 + 陀螺仪）
+ * @return  0：成功
+ *         -1：初始化失败
+ */
+int MPU9250_6Axis_Init(void)
+{
+    MPU9250_SoftReset();             // 1. 软复位
+    HAL_Delay(100);
+    
+    mpu_set_clock_to_auto();         // 2. 配置时钟源
+    mpu_enable_six_axis();           // 3. 使能六轴传感器
+    mpu_set_dlpf_cfg_3();           // 4. 配置陀螺仪DLPF
+    mpu_set_sample_rate_200hz();     // 5. 设置采样率
+    mpu_set_gyro_config();          // 6. 配置陀螺仪量程
+    mpu_set_accel_range();          // 7. 配置加速度计量程
+    mpu_set_accel_dlpf();           // 8. 配置加速度计DLPF
+    
+    return 0;  // 初始化成功
+}
+
+/*-----------------------------------磁力计的初始化所需函数---------------------------------------*/
 
 /**
  * @brief 1.配置AK8963为MCU可直接访问的方式
@@ -211,7 +239,7 @@ void AK8963_EnterContinuousMeasurementMode(void)
 }
 
 /**
- * @brief 5.调整灵敏度补偿系数（ASA）
+ * @brief 6.调整灵敏度补偿系数（ASA）
  * @param None
  * @return None
  */
@@ -227,6 +255,8 @@ void AK8963_AdjustSensitivity(void)
     g_ak8963_sensitivity[1] = (float)((g_ak8963_asa[1] - 128) * 0.5f) / 128 + 1.0f;
     g_ak8963_sensitivity[2] = (float)((g_ak8963_asa[2] - 128) * 0.5f) / 128 + 1.0f;
 }
+
+
 
 
 /**
@@ -284,56 +314,10 @@ int MPU9250_9Axis_Init(void)
     HAL_Delay(100);  // 等待 MPU9250 上电稳定
     
     // ========== 步骤 2：初始化六轴传感器 ==========
-    // 2.1 软复位（清除所有寄存器配置，恢复默认值）
-    MPU9250_SoftReset();
-    HAL_Delay(100);
-    
-    // 2.2 配置时钟源（选择 X 轴陀螺仪 PLL，精度更高）
-    mpu_set_clock_to_auto();
-    
-    // 2.3 使能六轴传感器（默认可能禁用某些轴）
-    mpu_enable_six_axis();
-    
-    // 2.4 配置陀螺仪 DLPF（数字低通滤波器，带宽 41Hz）
-    mpu_set_dlpf_cfg_3();
-    
-    // 2.5 设置采样率（200Hz）
-    mpu_set_sample_rate_200hz();
-    
-    // 2.6 配置陀螺仪量程（±1000°/s）
-    mpu_set_gyro_config();
-    
-    // 2.7 配置加速度计量程（±8g）
-    mpu_set_accel_range();
-    
-    // 2.8 配置加速度计 DLPF（带宽 41Hz）
-    mpu_set_accel_dlpf();
+    MPU9250_6Axis_Init();
     
     // ========== 步骤 3：初始化磁力计（AK8963）==========
-    // 3.1 配置 MPU9250，使 AK8963 可被 MCU 直接访问（旁路模式）
-    mpu_set_ak8963_by_mcu();
-    
-    // 3.2 检查 AK8963 设备 ID（应为 0x48）
-    if (AK8963_CheckDeviceID() != 0)
-    {
-        return -1;  // 设备 ID 错误
-    }
-    
-    // 3.3 进入 Power-down 模式（必须先关闭才能切换模式）
-    AK8963_EnterPowerDownMode();
-    
-    // 3.4 进入 Fuse ROM 模式（读取工厂校准数据）
-    AK8963_EnterFuseROMMode();
-    
-    // 3.5 读取灵敏度调整值（ASA）并计算补偿系数
-    AK8963_AdjustSensitivity();
-    
-    // 3.6 退出 Fuse ROM 模式，回到 Power-down
-    AK8963_EnterPowerDownMode();
-    
-    // 3.7 进入连续测量模式 2（16-bit 输出，100Hz 采样率）
-    AK8963_EnterContinuousMeasurementMode();
-
+    AK8963_Init();
     // 注意：校准应该在 main.c 中手动调用，不在初始化函数内部自动执行
     // MPU9250_CalibrateGyro(500, 10); // 已移到 main.c
     // MPU9250_CalibrateAccel(300, 5); // 已移到 main.c
@@ -478,7 +462,7 @@ int AK8963_Read_Axis(AK8963_raw_Data *raw)
 
 
 /**
- * @brief 补偿计算且转换为物理量（单位：微特斯拉 uT）
+ * @brief 对磁力计数据补偿计算且转换为物理量（单位：微特斯拉 uT）
  * @param raw 指向 AK8963_raw_Data 结构体的指针
  * @param physical 指向 AK8963_Physical_Data 结构体的指针
  */

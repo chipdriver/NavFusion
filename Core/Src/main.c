@@ -96,39 +96,45 @@ int main(void)
   /* USER CODE BEGIN 2 */
   /*A7076EandGNSS*/
   //AT_Getlocation_Init(); //初始化4G和GNSS模块
-    /*MPU9250*/
-    /* ========== 初始化 MPU9250 九轴传感器 ========== */
-    int init_ret = MPU9250_9Axis_Init();
-    if (init_ret == 0)
-    {
-        printf_uart6("MPU9250 初始化成功！\n\n");
-    }
-    else
-    {
-        printf_uart6("MPU9250 初始化失败！错误码：%d\n", init_ret);
-        while(1);  // 停止运行
-    }
+  /*MPU9250*/
+  /* ========== 初始化 MPU9250 九轴传感器 ========== */
+  int init_ret = MPU9250_9Axis_Init();
+  if (init_ret == 0)
+  {
+      printf_uart6("MPU9250 初始化成功！\n\n");
+  }
+  else
+  {
+      printf_uart6("MPU9250 初始化失败！错误码：%d\n", init_ret);
+      while(1);  // 停止运行
+  }
 
-    HAL_Delay(2000); 
+  HAL_Delay(2000); 
 
-    // 1. 先校准陀螺仪零偏（保持静止）
-    printf_uart6("开始陀螺仪零偏校准，请保持静止 3 秒...\n");
-    HAL_Delay(1000);
-    MPU9250_CalibrateGyro(300, 10); // 300次采样，10ms间隔，约3秒
-    printf_uart6("陀螺仪零偏校准完成！\n\n");
-    
-    // 2. 再校准磁力计（需要旋转，远离电子设备！）
-    printf_uart6("开始磁力计校准，请在开阔区域旋转设备（8字形）...\n");
-    HAL_Delay(1000);
-    AK8963_CalibrateMag(1000, 10); // 增加到1000次采样，确保覆盖所有方向
-    printf_uart6("磁力计校准完成！\n\n");
-    
-    // 3. 初始化 Mahony 滤波器（优化后的参数 + Anti-windup + 磁力计门控）
-    MPU9250_MahonyInit(0.3f, 0.0f); // Kp=0.3, Ki=0（先关闭积分，测试纯 P 控制）
-    printf_uart6("Mahony 滤波器初始化完成 (Kp=0.3, Ki=0.0)\n");
-    printf_uart6("优化项：Anti-windup + 磁力计门控\n\n");
-    
-    float roll_deg, pitch_deg, yaw_deg;
+  // 1. 先校准陀螺仪零偏（保持静止）
+  printf_uart6("开始陀螺仪零偏校准，请保持静止 3 秒...\n");
+  HAL_Delay(1000);
+  MPU9250_CalibrateGyro(500, 10); // 500次采样，10ms间隔，约5秒
+  printf_uart6("陀螺仪零偏校准完成！\n\n");
+  
+  // 2. 校准加速度计零偏（保持水平静止）
+  printf_uart6("开始加速度计校准，请保持设备水平静止 2 秒...\n");
+  HAL_Delay(1000);
+  MPU9250_CalibrateAccel(300, 5); // 300次采样，5ms间隔，约2秒
+  printf_uart6("加速度计校准完成！\n\n");
+  
+  // 3. 再校准磁力计（需要旋转，远离电子设备！）
+  printf_uart6("开始磁力计校准，请在开阔区域旋转设备（8字形）...\n");
+  HAL_Delay(1000);
+  AK8963_CalibrateMag(1000, 10); // 增加到1000次采样，确保覆盖所有方向
+  printf_uart6("磁力计校准完成！\n\n");
+  
+  // 4. 初始化 Mahony 滤波器（优化后的参数 + Anti-windup + 磁力计门控）
+  MPU9250_MahonyInit(0.3f, 0.0f); // Kp=0.3, Ki=0（先关闭积分，测试纯 P 控制）
+  printf_uart6("Mahony 滤波器初始化完成 (Kp=0.3, Ki=0.0)\n");
+  printf_uart6("优化项：Anti-windup + 磁力计门控\n\n");
+  
+  float roll_deg, pitch_deg, yaw_deg;
     
 
   /* 数据结构体 */
