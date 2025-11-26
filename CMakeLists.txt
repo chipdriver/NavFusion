@@ -47,6 +47,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     A7670E/Src/a7670e.c
     MPU9250/Src/i2c.c
     MPU9250/Src/mpu9250.c
+    CJSON/Src/cJSON.c
+    CJSON/Src/payload.c
     # Add user sources here
 )
 
@@ -54,6 +56,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     A7670E/Inc
     MPU9250/Inc
+    CJSON/Inc
     # Add user defined include paths
 )
 

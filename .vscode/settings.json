@@ -21,6 +21,8 @@
         "gpio.h": "c",
         "i2c.h": "c",
         "stm32f4xx.h": "c",
-        "stdarg.h": "c"
+        "stdarg.h": "c",
+        "cjson.h": "c",
+        "cstdint": "c"
     }
 }

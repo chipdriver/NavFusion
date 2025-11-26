@@ -15,7 +15,7 @@ uint16_t AT_ReadAllToBuffer_Timeout(uint32_t window_ms,
                                     uint32_t idle_ms,
                                     uint8_t  flush);
 
-static double nmea_to_deg(const char *nmea, const char *hemi);  // NMEA 格式转换为十进制度数    
+static float nmea_to_deg(const char *nmea, const char *hemi);  // NMEA 格式转换为十进制度数
 
 /*==============================================================================
  *                           全局变量定义
@@ -38,6 +38,9 @@ double lat_gcj, lon_gcj;
 
 // 经纬度（WGS-84）
 double lat_wgs, lon_wgs;
+
+//GNSS结构体
+GNSS_Data_t gnss_data = { 0 };
 
 /*==============================================================================
  *                           UART 底层操作（IRQ + RingBuffer）
@@ -350,8 +353,10 @@ uint8_t AT_GNSS_GetLocation(void)
         printf_uart6("field[%d] = '%s'\r\n", k, field[k]);
     }
 
-    lat_wgs = nmea_to_deg(field[0], field[1]); // 纬度
-    lon_wgs = nmea_to_deg(field[2], field[3]); // 经度
+    gnss_data.latitude = nmea_to_deg(field[0], field[1]); // 纬度
+    gnss_data.longitude = nmea_to_deg(field[2], field[3]); // 经度
+    gnss_data.altitude = field[6] ? (float)atof(field[6]) : 0.0f; // 海拔
+    gnss_data.speed_knots = field[7] ? (float)atof(field[7]) * 0.514444f : 0.0f; // 速度（节 -> 米/秒）
 
 
     // wgs84_to_gcj02(lat_wgs, lon_wgs, &lat_gcj, &lon_gcj);
@@ -474,22 +479,22 @@ uint16_t AT_ReadAllToBuffer_Timeout(uint32_t window_ms,
  *   2) “分” = v - 度*100
  *   3) 十进制度 = 度 + 分/60
  */
-static double nmea_to_deg(const char *nmea, const char *hemi)
+static float nmea_to_deg(const char *nmea, const char *hemi)
 {
     /* 参数保护：空指针或空字符串直接返回 0 */
     if (!nmea || !hemi || nmea[0] == '\0') return 0.0;
 
     /* 例： "3112.3456" -> 3112.3456 */
-    double v = atof(nmea);
+    float v = atof(nmea);
 
     /* 取 “度” 部分：3112.3456 /100 = 31.xx -> 31 */
     int deg = (int)(v / 100);
 
     /* 取 “分” 部分：3112.3456 - 31*100 = 12.3456 */
-    double min = v - deg * 100.0;
+    float min = v - deg * 100.0;
 
     /* 十进制度 = 度 + 分/60 */
-    double dec = deg + min / 60.0;
+    float dec = deg + min / 60.0;
 
     /* 南纬(S) / 西经(W) 取负 */
     if (hemi[0] == 'S' || hemi[0] == 'W') dec = -dec;

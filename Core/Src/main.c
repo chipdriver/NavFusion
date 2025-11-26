@@ -33,6 +33,7 @@
 #include "a7670e.h"    // A7670E 4G/GNSS 模块
 #include "i2c.h"       // I2C 软件模拟
 #include "mpu9250.h"   // MPU9250 九轴传感器
+#include "payload.h"    // 有关载荷控制的函数
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -111,7 +112,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /*--- 4G+GNSS 模块初始化 ---*/
-  // AT_Getlocation_Init(); //初始化4G和GNSS模块
+  AT_Getlocation_Init(); //初始化4G和GNSS模块
 
   /*--- MPU9250 九轴传感器初始化 ---*/
   // 1. 初始化 MPU9250 九轴传感器
@@ -161,9 +162,8 @@ int main(void)
     /* USER CODE END WHILE */
 
     /*--- GNSS 定位 ---*/
-    // AT_GNSS_GetLocation();//获取经纬度信息
+    AT_GNSS_GetLocation();//获取经纬度信息
 
-    
 
     /*--- 读取九轴数据 ---*/
     int ret = MPU9250_Read_9Axis(&mpu_raw, &mpu_phys, &ak_raw, &ak_phys);
@@ -208,6 +208,23 @@ int main(void)
             mag_success_count = 0;
             mag_fail_count = 0;
         }
+    }
+
+    //组JSON
+    char *payload = BuildPayload_WGS84_Attitude("device_id", "business_id", HAL_GetTick(), "gateway_id",
+                                                  gnss_data.latitude, gnss_data.longitude, gnss_data.altitude, gnss_data.speed_knots,
+                                                  roll_deg, pitch_deg, yaw_deg,
+                                                  0, 0);
+    if (payload != NULL)
+    {
+      // 先打印看看格式对不对
+      printf_uart6("%s\r\n", payload);
+
+      // ---- 下一步：MQTT 发布（你后面接 CMQTTPUB）----
+      // MQTT_Publish_AT("your/topic", payload);
+
+      // 用完一定 free
+      free(payload);
     }
 
     HAL_Delay(5);   // 约 200Hz
