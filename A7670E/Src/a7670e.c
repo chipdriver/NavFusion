@@ -33,6 +33,11 @@ static uint16_t AT_rx_index = 0;              // 线性缓冲区索引
 // 可在外部查看是否截断
 volatile uint8_t AT_rx_truncated = 0;
 
+/* 经纬度（GCJ-02） */
+double lat_gcj, lon_gcj;
+
+// 经纬度（WGS-84）
+double lat_wgs, lon_wgs;
 
 /*==============================================================================
  *                           UART 底层操作（IRQ + RingBuffer）
@@ -345,14 +350,14 @@ uint8_t AT_GNSS_GetLocation(void)
         printf_uart6("field[%d] = '%s'\r\n", k, field[k]);
     }
 
-    double lat_wgs = nmea_to_deg(field[0], field[1]); // 纬度
-    double lon_wgs = nmea_to_deg(field[2], field[3]); // 经度
+    lat_wgs = nmea_to_deg(field[0], field[1]); // 纬度
+    lon_wgs = nmea_to_deg(field[2], field[3]); // 经度
 
-    double lat_gcj, lon_gcj;
-    wgs84_to_gcj02(lat_wgs, lon_wgs, &lat_gcj, &lon_gcj);
 
-    printf_uart6("WGS84 : %.6f, %.6f\r\n", lat_wgs, lon_wgs);
-    printf_uart6("GCJ-02: %.6f, %.6f\r\n", lat_gcj, lon_gcj);
+    // wgs84_to_gcj02(lat_wgs, lon_wgs, &lat_gcj, &lon_gcj);
+
+    // printf_uart6("WGS84 : %.6f, %.6f\r\n", lat_wgs, lon_wgs);
+    // printf_uart6("GCJ-02: %.6f, %.6f\r\n", lat_gcj, lon_gcj);
 
     // field[0]    纬度（DDMM.MMMM）
     // field[1]    南北半球 N/S
@@ -492,104 +497,104 @@ static double nmea_to_deg(const char *nmea, const char *hemi)
     return dec;
 }
 
-/* 圆周率 */
-static const double PI = 3.14159265358979323846;
-/* 地球长半轴（GCJ-02 使用的参考椭球参数） */
-static const double A  = 6378245.0;
-/* 地球偏心率平方 */
-static const double EE = 0.00669342162296594323;
+// /* 圆周率 */
+// static const double PI = 3.14159265358979323846;
+// /* 地球长半轴（GCJ-02 使用的参考椭球参数） */
+// static const double A  = 6378245.0;
+// /* 地球偏心率平方 */
+// static const double EE = 0.00669342162296594323;
 
-/**
- * @brief 判断坐标是否在中国境内
- * @param lat 纬度（十进制度）
- * @param lon 经度（十进制度）
- * @return 1=不在中国，0=在中国
- *
- * GCJ-02 只对中国境内做加偏移处理。
- * 超出边界则直接返回原始 WGS84。
- */
-static int out_of_china(double lat, double lon)
-{
-    return (lon < 72.004 || lon > 137.8347 ||
-            lat < 0.8293 || lat > 55.8271);
-}
+// /**
+//  * @brief 判断坐标是否在中国境内
+//  * @param lat 纬度（十进制度）
+//  * @param lon 经度（十进制度）
+//  * @return 1=不在中国，0=在中国
+//  *
+//  * GCJ-02 只对中国境内做加偏移处理。
+//  * 超出边界则直接返回原始 WGS84。
+//  */
+// static int out_of_china(double lat, double lon)
+// {
+//     return (lon < 72.004 || lon > 137.8347 ||
+//             lat < 0.8293 || lat > 55.8271);
+// }
 
-/**
- * @brief 计算纬度方向的偏移量（内部用）
- * @param x 经度差 (lon - 105.0)
- * @param y 纬度差 (lat - 35.0)
- * @return 纬度偏移（单位：约等于米级映射到角度前的中间值）
- *
- * 这是 GCJ-02 的核心扰动模型之一，不建议修改。
- */
-static double transform_lat(double x, double y)
-{
-    double ret = -100.0 + 2.0*x + 3.0*y + 0.2*y*y
-                 + 0.1*x*y + 0.2*sqrt(fabs(x));
-    ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
-    ret += (20.0*sin(y*PI) + 40.0*sin(y/3.0*PI)) * 2.0/3.0;
-    ret += (160.0*sin(y/12.0*PI) + 320.0*sin(y*PI/30.0)) * 2.0/3.0;
-    return ret;
-}
+// /**
+//  * @brief 计算纬度方向的偏移量（内部用）
+//  * @param x 经度差 (lon - 105.0)
+//  * @param y 纬度差 (lat - 35.0)
+//  * @return 纬度偏移（单位：约等于米级映射到角度前的中间值）
+//  *
+//  * 这是 GCJ-02 的核心扰动模型之一，不建议修改。
+//  */
+// static double transform_lat(double x, double y)
+// {
+//     double ret = -100.0 + 2.0*x + 3.0*y + 0.2*y*y
+//                  + 0.1*x*y + 0.2*sqrt(fabs(x));
+//     ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
+//     ret += (20.0*sin(y*PI) + 40.0*sin(y/3.0*PI)) * 2.0/3.0;
+//     ret += (160.0*sin(y/12.0*PI) + 320.0*sin(y*PI/30.0)) * 2.0/3.0;
+//     return ret;
+// }
 
-/**
- * @brief 计算经度方向的偏移量（内部用）
- * @param x 经度差 (lon - 105.0)
- * @param y 纬度差 (lat - 35.0)
- * @return 经度偏移（单位：约等于米级映射到角度前的中间值）
- *
- * 这是 GCJ-02 的核心扰动模型之一，不建议修改。
- */
-static double transform_lon(double x, double y)
-{
-    double ret = 300.0 + x + 2.0*y + 0.1*x*x
-                 + 0.1*x*y + 0.1*sqrt(fabs(x));
-    ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
-    ret += (20.0*sin(x*PI) + 40.0*sin(x/3.0*PI)) * 2.0/3.0;
-    ret += (150.0*sin(x/12.0*PI) + 300.0*sin(x/30.0*PI)) * 2.0/3.0;
-    return ret;
-}
+// /**
+//  * @brief 计算经度方向的偏移量（内部用）
+//  * @param x 经度差 (lon - 105.0)
+//  * @param y 纬度差 (lat - 35.0)
+//  * @return 经度偏移（单位：约等于米级映射到角度前的中间值）
+//  *
+//  * 这是 GCJ-02 的核心扰动模型之一，不建议修改。
+//  */
+// static double transform_lon(double x, double y)
+// {
+//     double ret = 300.0 + x + 2.0*y + 0.1*x*x
+//                  + 0.1*x*y + 0.1*sqrt(fabs(x));
+//     ret += (20.0*sin(6.0*x*PI) + 20.0*sin(2.0*x*PI)) * 2.0/3.0;
+//     ret += (20.0*sin(x*PI) + 40.0*sin(x/3.0*PI)) * 2.0/3.0;
+//     ret += (150.0*sin(x/12.0*PI) + 300.0*sin(x/30.0*PI)) * 2.0/3.0;
+//     return ret;
+// }
 
-/**
- * @brief 将 WGS-84 十进制度经纬度转换为 GCJ-02 十进制度经纬度
- * @param lat      输入：WGS84 纬度（十进制度）
- * @param lon      输入：WGS84 经度（十进制度）
- * @param out_lat  输出：GCJ-02 纬度（十进制度）
- * @param out_lon  输出：GCJ-02 经度（十进制度）
- *
- * 使用方式：
- *  - 传入十进制度 WGS84
- *  - 函数内部判定是否中国境内
- *  - 返回 GCJ-02（常用于高德/腾讯/国内地图）
- */
-void wgs84_to_gcj02(double lat, double lon, double *out_lat, double *out_lon)
-{
-    if (!out_lat || !out_lon) return;
+// /**
+//  * @brief 将 WGS-84 十进制度经纬度转换为 GCJ-02 十进制度经纬度
+//  * @param lat      输入：WGS84 纬度（十进制度）
+//  * @param lon      输入：WGS84 经度（十进制度）
+//  * @param out_lat  输出：GCJ-02 纬度（十进制度）
+//  * @param out_lon  输出：GCJ-02 经度（十进制度）
+//  *
+//  * 使用方式：
+//  *  - 传入十进制度 WGS84
+//  *  - 函数内部判定是否中国境内
+//  *  - 返回 GCJ-02（常用于高德/腾讯/国内地图）
+//  */
+// void wgs84_to_gcj02(double lat, double lon, double *out_lat, double *out_lon)
+// {
+//     if (!out_lat || !out_lon) return;
 
-    /* 中国境外不偏移 */
-    if (out_of_china(lat, lon))
-    {
-        *out_lat = lat;
-        *out_lon = lon;
-        return;
-    }
+//     /* 中国境外不偏移 */
+//     if (out_of_china(lat, lon))
+//     {
+//         *out_lat = lat;
+//         *out_lon = lon;
+//         return;
+//     }
 
-    /* 计算中间偏移值 */
-    double dLat = transform_lat(lon - 105.0, lat - 35.0);
-    double dLon = transform_lon(lon - 105.0, lat - 35.0);
+//     /* 计算中间偏移值 */
+//     double dLat = transform_lat(lon - 105.0, lat - 35.0);
+//     double dLon = transform_lon(lon - 105.0, lat - 35.0);
 
-    /* 椭球体与纬度相关的修正 */
-    double radLat = lat / 180.0 * PI;
-    double sinRad = sin(radLat);
-    double magic  = 1.0 - EE * sinRad * sinRad;
-    double sqrtMagic = sqrt(magic);
+//     /* 椭球体与纬度相关的修正 */
+//     double radLat = lat / 180.0 * PI;
+//     double sinRad = sin(radLat);
+//     double magic  = 1.0 - EE * sinRad * sinRad;
+//     double sqrtMagic = sqrt(magic);
 
-    /* 将偏移量从“米级扰动”换算成角度偏移 */
-    dLat = (dLat * 180.0) / ((A * (1.0 - EE)) / (magic * sqrtMagic) * PI);
-    dLon = (dLon * 180.0) / (A / sqrtMagic * cos(radLat) * PI);
+//     /* 将偏移量从“米级扰动”换算成角度偏移 */
+//     dLat = (dLat * 180.0) / ((A * (1.0 - EE)) / (magic * sqrtMagic) * PI);
+//     dLon = (dLon * 180.0) / (A / sqrtMagic * cos(radLat) * PI);
 
-    /* 得到 GCJ-02 坐标 */
-    *out_lat = lat + dLat;
-    *out_lon = lon + dLon;
-}
+//     /* 得到 GCJ-02 坐标 */
+//     *out_lat = lat + dLat;
+//     *out_lon = lon + dLon;
+// }
 

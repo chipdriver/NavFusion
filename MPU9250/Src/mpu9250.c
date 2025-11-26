@@ -1016,79 +1016,227 @@ void MPU9250_MahonyUpdate(const MPU9250_Physical_Data *imu,
                                  1 - 2*(q2*q2 + q3*q3));
 }
 
+/**
+ * @brief Mahony 滤波器 6 轴融合更新（仅使用加速度计 + 陀螺仪）
+ * @param imu 指向 MPU9250 物理量数据的指针（加速度计 + 陀螺仪）
+ * @param dt  时间间隔（秒），通常为 0.005f（200Hz 采样率）
+ * @return None
+ * 
+ * @note 功能说明：
+ *       当磁力计数据不可用或不可靠时，使用 6 轴数据（加速度计 + 陀螺仪）进行姿态融合
+ *       - 输入：加速度计（g）、陀螺仪（°/s）
+ *       - 输出：更新全局四元数 g_q 和欧拉角 g_euler_fused
+ * 
+ * @note 与 MPU9250_MahonyUpdate() 的区别：
+ *       - MPU9250_MahonyUpdate()    → 9 轴融合（加速度计 + 陀螺仪 + 磁力计）
+ *       - MPU9250_MahonyUpdateIMU() → 6 轴融合（加速度计 + 陀螺仪）
+ *       - 6 轴版本的 Yaw 角会漂移（无磁力计修正），只能提供相对航向
+ * 
+ * @note 使用场景：
+ *       - 磁力计失效或数据异常
+ *       - 强磁干扰环境（电机、电池附近）
+ *       - 室内环境（金属建筑物干扰地磁场）
+ * 
+ * @note 限制：
+ *       - Roll 和 Pitch：精度正常（有加速度计修正）
+ *       - Yaw：会逐渐漂移（只靠陀螺仪积分，无绝对参考）
+ * 
+ * @note 算法流程：
+ *       1. 坐标系转换（模块坐标系 → NED 机体系）
+ *       2. 加速度计归一化
+ *       3. 用四元数预测重力方向
+ *       4. 计算重力误差（叉乘）
+ *       5. PI 反馈修正陀螺仪（比例 + 积分）
+ *       6. 四元数积分更新
+ *       7. 四元数归一化
+ *       8. 四元数转欧拉角（输出姿态）
+ */
 void MPU9250_MahonyUpdateIMU(const MPU9250_Physical_Data *imu, float dt)
 {
-    /*---------- 1) 统一到机体系（X前 Y右 Z下） ----------*/
-    float ax =  imu->accel_x_g;
-    float ay = -imu->accel_y_g;
-    float az =  imu->accel_z_g;
+    /*=================== 1. 坐标系转换：模块坐标系 → 机体系（X前 Y右 Z下 NED） ===================*/
+    // 加速度计转换（单位：g）
+    // 模块坐标系：X=前，Y=左，Z=上
+    // 机体坐标系：X=前，Y=右，Z=下（NED 标准）
+    // 转换规则：X 保持，Y 取反，Z 取反
+    float ax =  imu->accel_x_g;   // X 轴保持不变（前方向）
+    float ay = -imu->accel_y_g;   // Y 轴取反（左 → 右）
+    float az =  imu->accel_z_g;   // Z 轴取反（上 → 下）
 
-    const float deg2rad = 0.01745329252f;
-    float gx =  imu->gyro_x_dps * deg2rad;
-    float gy = -imu->gyro_y_dps * deg2rad;
-    float gz =  imu->gyro_z_dps * deg2rad;
+    // 陀螺仪转换（单位：°/s → rad/s）
+    const float deg2rad = 0.01745329252f;  // π/180 = 0.0174532925 rad/°
+    float gx =  imu->gyro_x_dps * deg2rad; // X 轴角速度（前）：度/秒 → 弧度/秒
+    float gy = -imu->gyro_y_dps * deg2rad; // Y 轴角速度（右）：度/秒 → 弧度/秒，取反
+    float gz =  imu->gyro_z_dps * deg2rad; // Z 轴角速度（下）：度/秒 → 弧度/秒，取反
 
-    /*---------- 2) 归一化 accel ----------*/
-    float norm = sqrtf(ax*ax + ay*ay + az*az);
-    if (norm < 1e-6f) return;
-    ax/=norm; ay/=norm; az/=norm;
+    /*=================== 2. 加速度计归一化（转换为单位向量） ===================*/
+    // 计算加速度向量的模长（欧几里得范数）
+    float norm = sqrtf(ax*ax + ay*ay + az*az);  // ||a|| = √(ax² + ay² + az²)
+    
+    // 异常检查：模长过小（< 10⁻⁶）说明数据异常（例如自由落体、传感器故障）
+    if (norm < 1e-6f) return;  // 提前退出，不更新姿态
+    
+    // 归一化：将加速度向量转换为单位向量（模长为 1）
+    ax /= norm;  // â_x = ax / ||a||
+    ay /= norm;  // â_y = ay / ||a||
+    az /= norm;  // â_z = az / ||a||
+    // 归一化后的加速度向量表示重力方向（在机体系中的投影）
 
-    /*---------- 3) 当前四元数 ----------*/
-    float q0=g_q.q0, q1=g_q.q1, q2=g_q.q2, q3=g_q.q3;
+    /*=================== 3. 获取当前四元数状态 ===================*/
+    // 从全局变量 g_q 读取当前姿态四元数（由上一次迭代更新）
+    float q0 = g_q.q0;  // 四元数标量部分（w 分量）
+    float q1 = g_q.q1;  // 四元数向量部分（x 分量）
+    float q2 = g_q.q2;  // 四元数向量部分（y 分量）
+    float q3 = g_q.q3;  // 四元数向量部分（z 分量）
+    // 四元数表示：q = q0 + q1*i + q2*j + q3*k
 
-    /*---------- 4) 预测重力方向 v ----------*/
-    float vx = 2.0f*(q1*q3 - q0*q2);
-    float vy = 2.0f*(q0*q1 + q2*q3);
-    float vz = q0*q0 - q1*q1 - q2*q2 + q3*q3;
+    /*=================== 4. 用四元数预测重力方向 v（机体系中的重力向量） ===================*/
+    // 理论上，地球重力在惯性系（NED）中为 [0, 0, 1]（向下）
+    // 通过四元数旋转公式，计算重力在当前机体系中的方向向量 v
+    // 公式：v = q * [0,0,1] * q⁻¹（四元数乘法）
+    float vx = 2.0f * (q1*q3 - q0*q2);           // 预测的重力 X 分量（前方向）
+    float vy = 2.0f * (q0*q1 + q2*q3);           // 预测的重力 Y 分量（右方向）
+    float vz = q0*q0 - q1*q1 - q2*q2 + q3*q3;    // 预测的重力 Z 分量（下方向）
+    // v 向量表示：如果当前姿态估计正确，加速度计应该测到这个方向的重力
 
-    /*---------- 5) 重力误差 e = a × v ----------*/
-    float ex = (ay*vz - az*vy);
-    float ey = (az*vx - ax*vz);
-    float ez = (ax*vy - ay*vx);
+    /*=================== 5. 计算重力误差 e（观测值 × 预测值，叉乘） ===================*/
+    // 误差向量 e = a × v（叉乘，Cross Product）
+    // 物理意义：加速度计测量值（a）与四元数预测值（v）之间的差异
+    // 叉乘结果是一个向量，指向需要修正的旋转轴方向
+    float ex = (ay*vz - az*vy);  // 误差 X 分量 = ay*vz - az*vy
+    float ey = (az*vx - ax*vz);  // 误差 Y 分量 = az*vx - ax*vz
+    float ez = (ax*vy - ay*vx);  // 误差 Z 分量 = ax*vy - ay*vx
+    // 如果 e = 0，说明姿态估计完全正确；e 越大，误差越大
 
-    /*---------- 6) PI 反馈修正陀螺 ----------*/
-    if (g_ki > 0.0f)
+    /*=================== 6. PI 反馈修正陀螺仪（比例 + 积分控制） ===================*/
+    // 积分项（I 控制）：累积误差，用于消除陀螺仪零偏漂移
+    if (g_ki > 0.0f)  // 只有当积分增益 Ki > 0 时才启用积分项
     {
-        g_exInt += ex * g_ki * dt;
-        g_eyInt += ey * g_ki * dt;
-        g_ezInt += ez * g_ki * dt;
+        // 误差积分：∫e·dt（累积历史误差）
+        g_exInt += ex * g_ki * dt;  // X 轴积分项累加：exInt = exInt + ex*Ki*dt
+        g_eyInt += ey * g_ki * dt;  // Y 轴积分项累加
+        g_ezInt += ez * g_ki * dt;  // Z 轴积分项累加
+        // 积分项用于长期修正陀螺仪零偏（缓慢漂移）
 
-        gx += g_exInt;
-        gy += g_eyInt;
-        gz += g_ezInt;
+        // 将积分项加到陀螺仪角速度上（修正陀螺仪零偏）
+        gx += g_exInt;  // 修正后的 X 轴角速度 = 原始角速度 + 积分修正
+        gy += g_eyInt;  // 修正后的 Y 轴角速度
+        gz += g_ezInt;  // 修正后的 Z 轴角速度
     }
 
-    gx += g_kp * ex;
-    gy += g_kp * ey;
-    gz += g_kp * ez;
+    // 比例项（P 控制）：即时修正当前误差
+    gx += g_kp * ex;  // X 轴陀螺仪修正：gx = gx + Kp*ex（快速响应当前误差）
+    gy += g_kp * ey;  // Y 轴陀螺仪修正
+    gz += g_kp * ez;  // Z 轴陀螺仪修正
+    // 比例项用于快速修正当前姿态误差（实时响应）
 
-    /*---------- 7) 四元数积分更新 ----------*/
-    float halfDt = 0.5f * dt;
+    /*=================== 7. 四元数积分更新（龙格-库塔一阶近似） ===================*/
+    // 四元数微分方程：dq/dt = 0.5 * q ⊗ ω（⊗ 表示四元数乘法）
+    // 一阶近似：q(t+dt) = q(t) + dq/dt * dt
+    float halfDt = 0.5f * dt;  // 计算 0.5*dt（四元数微分方程系数）
 
-    q0 += (-q1*gx - q2*gy - q3*gz) * halfDt;
-    q1 += ( q0*gx + q2*gz - q3*gy) * halfDt;
-    q2 += ( q0*gy - q1*gz + q3*gx) * halfDt;
-    q3 += ( q0*gz + q1*gy - q2*gx) * halfDt;
+    // 四元数更新公式（一阶龙格-库塔）：
+    q0 += (-q1*gx - q2*gy - q3*gz) * halfDt;  // dq0/dt = 0.5*(-q1*gx - q2*gy - q3*gz)
+    q1 += ( q0*gx + q2*gz - q3*gy) * halfDt;  // dq1/dt = 0.5*( q0*gx + q2*gz - q3*gy)
+    q2 += ( q0*gy - q1*gz + q3*gx) * halfDt;  // dq2/dt = 0.5*( q0*gy - q1*gz + q3*gx)
+    q3 += ( q0*gz + q1*gy - q2*gx) * halfDt;  // dq3/dt = 0.5*( q0*gz + q1*gy - q2*gx)
+    // 积分后得到新的四元数（但可能不再满足单位四元数约束）
 
-    norm = sqrtf(q0*q0 + q1*q1 + q2*q2 + q3*q3);
-    if (norm < 1e-6f) return;
+    /*=================== 8. 四元数归一化（确保模长为 1） ===================*/
+    // 计算四元数的模长
+    norm = sqrtf(q0*q0 + q1*q1 + q2*q2 + q3*q3);  // ||q|| = √(q0² + q1² + q2² + q3²)
+    
+    // 异常检查：模长过小说明计算出错
+    if (norm < 1e-6f) return;  // 提前退出，避免除零错误
+    
+    // 归一化：将四元数转换为单位四元数（模长为 1）
+    g_q.q0 = q0 / norm;  // q̂0 = q0 / ||q||
+    g_q.q1 = q1 / norm;  // q̂1 = q1 / ||q||
+    g_q.q2 = q2 / norm;  // q̂2 = q2 / ||q||
+    g_q.q3 = q3 / norm;  // q̂3 = q3 / ||q||
+    // 归一化后的四元数满足 ||q|| = 1（单位四元数约束）
 
-    g_q.q0=q0/norm; g_q.q1=q1/norm; g_q.q2=q2/norm; g_q.q3=q3/norm;
+    /*=================== 9. 四元数转欧拉角（ZYX 顺序，输出姿态） ===================*/
+    // 重新读取归一化后的四元数（确保精度）
+    q0 = g_q.q0;
+    q1 = g_q.q1;
+    q2 = g_q.q2;
+    q3 = g_q.q3;
 
-    /*---------- 8) 四元数 → 欧拉角 ----------*/
-    q0=g_q.q0; q1=g_q.q1; q2=g_q.q2; q3=g_q.q3;
+    // 四元数 → 欧拉角转换公式（ZYX 欧拉角顺序，Tait-Bryan angles）
+    // Roll（横滚角）：绕 X 轴旋转，范围 [-π, π]
+    g_euler_fused.roll = atan2f(2.0f * (q0*q1 + q2*q3),         // 分子：2*(q0*q1 + q2*q3)
+                                1.0f - 2.0f * (q1*q1 + q2*q2)); // 分母：1 - 2*(q1² + q2²)
+    // atan2 返回弧度值，范围 [-π, π]
 
-    g_euler_fused.roll  = atan2f(2*(q0*q1 + q2*q3),
-                                 1 - 2*(q1*q1 + q2*q2));
-    g_euler_fused.pitch = asinf (2*(q0*q2 - q3*q1));
-    g_euler_fused.yaw   = atan2f(2*(q0*q3 + q1*q2),
-                                 1 - 2*(q2*q2 + q3*q3));
+    // Pitch（俯仰角）：绕 Y 轴旋转，范围 [-π/2, π/2]
+    g_euler_fused.pitch = asinf(2.0f * (q0*q2 - q3*q1));  // asin(2*(q0*q2 - q3*q1))
+    // asin 返回弧度值，范围 [-π/2, π/2]
+
+    // Yaw（航向角）：绕 Z 轴旋转，范围 [-π, π]
+    g_euler_fused.yaw = atan2f(2.0f * (q0*q3 + q1*q2),         // 分子：2*(q0*q3 + q1*q2)
+                               1.0f - 2.0f * (q2*q2 + q3*q3)); // 分母：1 - 2*(q2² + q3²)
+    // ⚠️ 注意：6 轴版本的 Yaw 会漂移（无磁力计修正）
+
+    // 更新后的欧拉角存储在全局变量 g_euler_fused 中（单位：弧度）
+    // 调用 MPU9250_GetEulerFusedDeg() 可转换为度数
 }
 
+/**
+ * @brief 获取 Mahony 融合后的欧拉角（单位：度）
+ * @param roll_deg  输出横滚角指针（度），可为 NULL
+ * @param pitch_deg 输出俯仰角指针（度），可为 NULL
+ * @param yaw_deg   输出航向角指针（度），可为 NULL
+ * @return None
+ * 
+ * @note 功能说明：
+ *       1. 从全局变量 g_euler_fused 读取 Mahony 融合后的姿态角（弧度）
+ *       2. 转换为度数（乘以 180/π ≈ 57.295779513）
+ *       3. 通过指针参数返回给调用者
+ * 
+ * @note 数据来源：
+ *       - g_euler_fused 由 MPU9250_MahonyUpdate() 或 MPU9250_MahonyUpdateIMU() 更新
+ *       - 更新频率：由主循环调用频率决定（通常 200Hz）
+ * 
+ * @note 角度定义（NED 坐标系）：
+ *       - Roll（横滚角）：机体绕 X 轴旋转，范围 [-180°, 180°]
+ *         * 正值：机体向右倾斜（右翼下沉）
+ *         * 负值：机体向左倾斜（左翼下沉）
+ *       - Pitch（俯仰角）：机体绕 Y 轴旋转，范围 [-90°, 90°]
+ *         * 正值：机头抬起（仰角）
+ *         * 负值：机头下压（俯角）
+ *       - Yaw（航向角）：机体绕 Z 轴旋转，范围 [-180°, 180°]
+ *         * 0°：指向正北
+ *         * 90°：指向正东
+ *         * ±180°：指向正南
+ *         * -90°：指向正西
+ * 
+ * @note 使用示例：
+ *       float roll, pitch, yaw;
+ *       MPU9250_GetEulerFusedDeg(&roll, &pitch, &yaw);
+ *       printf("姿态角：R:%.1f° P:%.1f° Y:%.1f°\n", roll, pitch, yaw);
+ * 
+ * @note 与 MPU9250_GetEulerDeg() 的区别：
+ *       - MPU9250_GetEulerDeg()      → 读取加速度+磁力计静态解算结果（g_euler_acc_mag）
+ *       - MPU9250_GetEulerFusedDeg() → 读取 Mahony 融合动态解算结果（g_euler_fused）
+ *       推荐使用融合版本，精度更高，抗干扰能力强
+ */
 void MPU9250_GetEulerFusedDeg(float *roll_deg, float *pitch_deg, float *yaw_deg)
 {
-    const float rad2deg = 57.295779513f;
-    if (roll_deg)  *roll_deg  = g_euler_fused.roll  * rad2deg;
-    if (pitch_deg) *pitch_deg = g_euler_fused.pitch * rad2deg; 
-    if (yaw_deg)   *yaw_deg   = g_euler_fused.yaw   * rad2deg;
+    // 定义弧度到角度的转换系数：180° / π ≈ 57.295779513°/rad
+    const float rad2deg = 57.295779513f;  // 转换系数（编译器会优化为常量）
+    
+    // 如果调用者提供了 roll_deg 指针（非 NULL），则输出横滚角（度）
+    if (roll_deg)  *roll_deg  = g_euler_fused.roll  * rad2deg;  // 横滚角：弧度 → 度
+    
+    // 如果调用者提供了 pitch_deg 指针（非 NULL），则输出俯仰角（度）
+    if (pitch_deg) *pitch_deg = g_euler_fused.pitch * rad2deg;  // 俯仰角：弧度 → 度
+    
+    // 如果调用者提供了 yaw_deg 指针（非 NULL），则输出航向角（度）
+    if (yaw_deg)   *yaw_deg   = g_euler_fused.yaw   * rad2deg;  // 航向角：弧度 → 度
+    
+    // 注意：
+    // 1. 指针检查（if 判断）允许调用者只获取部分角度，例如：
+    //    MPU9250_GetEulerFusedDeg(&roll, NULL, &yaw);  // 只获取 roll 和 yaw
+    // 2. g_euler_fused 的更新频率由主循环决定，通常为 200Hz（5ms 周期）
+    // 3. 转换为度数是为了方便阅读和调试（内部计算仍使用弧度）
 }

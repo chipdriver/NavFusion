@@ -27,7 +27,7 @@
 /*==============================================================================
  *                           外部变量声明
  *============================================================================*/
-
+extern double lat_wgs, lon_wgs;  // WGS-84 坐标
 /*==============================================================================
  *                           函数声明
  *============================================================================*/
@@ -47,6 +47,6 @@ void AT_Getlocation_Init(void); //获取位置信息初始化
 /* GNSS 数据获取函数 */
 uint8_t AT_GNSS_GetLocation(void); //获取位置信息
 
-void wgs84_to_gcj02(double lat, double lon, double *out_lat, double *out_lon);  // WGS-84 转 GCJ-02 坐标转换
+//void wgs84_to_gcj02(double lat, double lon, double *out_lat, double *out_lon);  // WGS-84 转 GCJ-02 坐标转换
 
 #endif // A7670E_H

@@ -105,6 +105,8 @@ extern float g_mag_scale[3];      // 磁力计软铁缩放（单位：比例因�
 extern EulerAngle_t g_euler_acc_mag;  // 由加速度计+磁力计解算的姿态角（单位：弧度）
 extern EulerAngle_t g_euler_fused;    // Mahony融合后的姿态角（单位：弧度）
 
+// 经纬度（GCJ-02）
+extern double lat_gcj, lon_gcj;  
 /*======================== 基础功能函数 ========================*/
 
 /**
