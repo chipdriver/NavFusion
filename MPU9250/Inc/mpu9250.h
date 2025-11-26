@@ -150,6 +150,12 @@ void MPU9250_CalibrateAccel(uint16_t samples, uint16_t delay_ms);
  */
 void AK8963_CalibrateMag(uint16_t samples, uint16_t delay_ms);
 
+/**
+ * @brief 一键校准所有传感器（陀螺仪+加速度计+磁力计）
+ * @note 该函数会调用上述三个校准函数，使用默认参数
+ */
+void MPU9250_CalibrateAll(void);
+
 /*======================== 姿态解算功能 ========================*/
 
 /**

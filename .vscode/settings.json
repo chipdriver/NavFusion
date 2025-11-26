@@ -20,6 +20,7 @@
         "stdio.h": "c",
         "gpio.h": "c",
         "i2c.h": "c",
-        "stm32f4xx.h": "c"
+        "stm32f4xx.h": "c",
+        "stdarg.h": "c"
     }
 }
