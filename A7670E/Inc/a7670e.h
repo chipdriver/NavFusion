@@ -28,7 +28,7 @@
  *                           外部变量声明
  *============================================================================*/
 extern double lat_wgs, lon_wgs;  // WGS-84 坐标
-
+extern char     AT_rx_buffer[AT_RX_BUF_SIZE]; 
 typedef struct
 {
     float latitude;     // 纬度（度）
@@ -59,5 +59,10 @@ void AT_Getlocation_Init(void); //获取位置信息初始化
 uint8_t AT_GNSS_GetLocation(void); //获取位置信息
 
 //void wgs84_to_gcj02(double lat, double lon, double *out_lat, double *out_lon);  // WGS-84 转 GCJ-02 坐标转换
+
+uint16_t AT_ReadAllToBuffer_Timeout(uint32_t window_ms,
+                                    uint32_t idle_ms,
+                                    uint8_t  flush);
+
 
 #endif // A7670E_H

@@ -27,7 +27,7 @@ static volatile uint16_t AT_RxWrite = 0; // 写指针
 static volatile uint16_t AT_RxRead  = 0; // 读指针
 
 // 定义线性拼接缓冲（用于 strstr / strtok 解析）
-static char     AT_rx_buffer[AT_RX_BUF_SIZE]; // 线性接收缓冲区
+char     AT_rx_buffer[AT_RX_BUF_SIZE]; // 线性接收缓冲区
 static uint16_t AT_rx_index = 0;              // 线性缓冲区索引
 
 // 可在外部查看是否截断
@@ -159,7 +159,7 @@ uint8_t AT_SendAndWait(const char *cmd, const char *expect, uint32_t timeout_ms)
 
                 if (strstr(AT_rx_buffer, expect) != NULL) // 检查是否包含期望响应
                 {
-                    printf_uart6("%s", AT_rx_buffer);     // 打印接收到的完整响应（调试用）
+                    printf_uart6("%s\n", AT_rx_buffer);     // 打印接收到的完整响应（调试用）
                     return 0;                             // 找到期望响应
                 }
             }
@@ -257,7 +257,7 @@ uint8_t AT_GNSS_Init(void)
     // 开启GNSS电源
     printf_uart1("AT+CGNSSPWR=1\r\n");
     AT_ReadAllToBuffer_Timeout(2000, 120, 1);
-    //printf_uart6("%s", AT_rx_buffer);//调试专用
+    printf_uart6("%s", AT_rx_buffer);//调试专用
 
     // 等待30秒让GNSS模块定位
     HAL_Delay(30000); // 30秒

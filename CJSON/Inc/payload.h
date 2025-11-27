@@ -18,5 +18,6 @@ char* BuildPayload_WGS84_Attitude(
                                     int battery_pct,           // 电池电量百分比（0-100%）
                                     int gps_num                // GPS可见卫星数量
 );
-
+int MQTT_InitAndConnect_raw(void);
+int MQTT_Publish_raw(const char *topic, const char *payload);
 #endif /* __PAYLOAD_H__ */

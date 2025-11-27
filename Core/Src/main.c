@@ -114,6 +114,8 @@ int main(void)
   /*--- 4G+GNSS 模块初始化 ---*/
   AT_Getlocation_Init(); //初始化4G和GNSS模块
 
+  MQTT_InitAndConnect_raw(); //初始化并连接MQTT服务器
+
   /*--- MPU9250 九轴传感器初始化 ---*/
   // 1. 初始化 MPU9250 九轴传感器
   int init_ret = MPU9250_9Axis_Init();    
@@ -197,9 +199,9 @@ int main(void)
         MPU9250_GetEulerFusedDeg(&roll_deg, &pitch_deg, &yaw_deg);//从全局变量 g_euler_fused（弧度）转换为度数（°）
         
         // 【诊断模式】打印姿态角（静置时观察是否稳定）
-        printf_uart6("姿态角：R:%.1f° P:%.1f° Y:%.1f° [Mag:%s]\n",
-                     roll_deg, pitch_deg, yaw_deg,
-                     (ret == 0) ? "OK" : "FAIL");
+        // printf_uart6("姿态角：R:%.1f° P:%.1f° Y:%.1f° [Mag:%s]\n",
+        //              roll_deg, pitch_deg, yaw_deg,
+        //              (ret == 0) ? "OK" : "FAIL");
         print_count = 0;
         
         // 每 10 秒重置统计
@@ -221,7 +223,7 @@ int main(void)
       printf_uart6("%s\r\n", payload);
 
       // ---- 下一步：MQTT 发布（你后面接 CMQTTPUB）----
-      // MQTT_Publish_AT("your/topic", payload);
+      MQTT_Publish_raw("topictest", payload);
 
       // 用完一定 free
       free(payload);

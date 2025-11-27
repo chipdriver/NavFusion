@@ -1,6 +1,6 @@
 #include "payload.h"
 #include "cJSON.h"
-
+#include "a7670e.h"
 /**
  * @brief 组装 WGS84 + 姿态 的 JSON payload
  * @param tid           设备 TID（字符串，必填）
@@ -89,3 +89,121 @@ char* BuildPayload_WGS84_Attitude(
     return payload;
 
 }
+
+/**
+ * @brief 启动 MQTT 并连接到 broker.emqx.io:1883（公共测试）
+ * @return 0 成功，非0失败
+ */
+int MQTT_InitAndConnect_raw(void)
+{
+    printf_uart6("\r\n========== MQTT_InitAndConnect_raw ==========\r\n");
+
+    // 1) CMQTTSTART
+    printf_uart1("AT+CMQTTSTART\r\n");
+    AT_ReadAllToBuffer_Timeout(3000, 200, 1);
+    printf_uart6("%s", AT_rx_buffer);
+
+    // 有时重复 start 会报错，但也可能已经启动，先放过
+    if (strstr(AT_rx_buffer, "OK") == NULL &&
+        strstr(AT_rx_buffer, "+CMQTTSTART: 0") == NULL)
+    {
+        printf_uart6("[WARN] CMQTTSTART not OK, maybe already started.\r\n");
+    }
+    HAL_Delay(300);
+
+    // 2) ACCQ client
+    printf_uart1("AT+CMQTTACCQ=0,\"A7670E001\",0\r\n");
+    AT_ReadAllToBuffer_Timeout(3000, 200, 1);
+    printf_uart6("%s", AT_rx_buffer);
+    if (strstr(AT_rx_buffer, "OK") == NULL)
+    {
+        printf_uart6("[ERR] CMQTTACCQ failed.\r\n");
+        return -2;
+    }
+    HAL_Delay(300);
+
+    // 3) CFG argtopic
+    printf_uart1("AT+CMQTTCFG=\"argtopic\",0,1,1\r\n");
+    AT_ReadAllToBuffer_Timeout(2000, 150, 1);
+    printf_uart6("%s", AT_rx_buffer);
+    if (strstr(AT_rx_buffer, "OK") == NULL)
+    {
+        printf_uart6("[ERR] CMQTTCFG failed.\r\n");
+        return -3;
+    }
+    HAL_Delay(300);
+
+    // 4) CONNECT
+    printf_uart1("AT+CMQTTCONNECT=0,\"tcp://broker.emqx.io:1883\",60,1\r\n");
+    AT_ReadAllToBuffer_Timeout(10000, 300, 1);
+    printf_uart6("%s", AT_rx_buffer);
+
+    // CONNECT 成功必须看到 URC: +CMQTTCONNECT: 0,0
+    if (strstr(AT_rx_buffer, "+CMQTTCONNECT: 0,0") == NULL)
+    {
+        printf_uart6("[ERR] CMQTTCONNECT failed.\r\n");
+        return -4;
+    }
+
+    printf_uart6("[OK] MQTT CONNECTED.\r\n");
+    printf_uart6("============================================\r\n");
+    return 0;
+}
+
+
+/**
+ * @brief 通过 CMQTTPUB 发布一条 JSON payload（原始风格）
+ * @param topic   topic 字符串
+ * @param payload JSON 字符串
+ * @return 0 成功，非0失败
+ */
+int MQTT_Publish_raw(const char *topic, const char *payload)
+{
+    if (!topic || !payload) return -1;
+
+    int len = (int)strlen(payload);
+    char cmd[256];
+
+    snprintf(cmd, sizeof(cmd),
+             "AT+CMQTTPUB=0,\"%s\",0,%d\r\n", topic, len);
+
+    printf_uart6("\r\n========== MQTT_Publish_raw ==========\r\n");
+    printf_uart6("[TOPIC] %s\r\n", topic);
+    printf_uart6("[LEN  ] %d\r\n", len);
+    printf_uart6("[PAYLD] %s\r\n", payload);
+
+    // 1) 先发 PUB 命令
+    printf_uart1("%s", cmd);
+    AT_ReadAllToBuffer_Timeout(3000, 200, 1);
+    printf_uart6("%s", AT_rx_buffer);
+
+    // 必须等到 >
+    if (strchr(AT_rx_buffer, '>') == NULL)
+    {
+        printf_uart6("[ERR] No '>' prompt, pub abort.\r\n");
+        return -2;
+    }
+
+    // 2) 发送 payload 原文（不加 \r\n）
+    for (int i = 0; i < len; i++)
+    {
+        while (!(USART1->SR & USART_SR_TXE));
+        USART1->DR = payload[i];
+    }
+
+    // 3) 等发布结果
+    AT_ReadAllToBuffer_Timeout(5000, 300, 1);
+    printf_uart6("%s", AT_rx_buffer);
+
+    if (strstr(AT_rx_buffer, "+CMQTTPUB: 0,0") == NULL)
+    {
+        printf_uart6("[ERR] CMQTTPUB failed.\r\n");
+        return -3;
+    }
+
+    printf_uart6("[OK] PUB SUCCESS.\r\n");
+    printf_uart6("======================================\r\n");
+    return 0;
+}
+
+
