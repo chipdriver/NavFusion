@@ -155,36 +155,58 @@ int MQTT_InitAndConnect_raw(void)
 
 /**
  * @brief 通过 CMQTTPUB 发布一条 JSON payload（原始风格）
- * @param topic   topic 字符串
- * @param payload JSON 字符串
- * @return 0 成功，非0失败
+ * @param topic   MQTT 主题字符串（如："thing/product/yuandu/20251208001/osd"）
+ * @param payload JSON 字符串（必须是完整的 JSON 格式）
+ * @return 0 成功，-1 参数错误，-2 未收到'>'提示符，-3 发布失败
+ * 
+ * @note 发布流程：
+ *       1. 设置互斥锁标志 mqtt_publishing = 1，防止 GNSS 查询干扰
+ *       2. 发送 AT+CMQTTPUB 命令，格式：AT+CMQTTPUB=0,"topic",0,length
+ *          - 参数0: MQTT 客户端索引（固定为0）
+ *          - topic: 发布主题
+ *          - 参数0: QoS 等级（0=最多一次）
+ *          - length: payload 长度（字节）
+ *       3. 等待模块返回 '>' 提示符，表示准备接收数据
+ *       4. 逐字节发送 payload 内容（不带 \r\n）
+ *       5. 等待模块返回 +CMQTTPUB: 0,0 表示发布成功
+ *       6. 清除互斥锁标志，允许其他操作
+ * 
+ * @warning 此函数会阻塞约 3-6 秒，期间不能进行 GNSS 查询
+ * @warning 必须先调用 MQTT_InitAndConnect_raw() 建立连接
  */
 int MQTT_Publish_raw(const char *topic, const char *payload)
 {
+    // 设置互斥锁，防止 GNSS 查询等操作干扰 UART
     mqtt_publishing = 1;
+    
+    // 参数有效性检查
     if (!topic || !payload)
     {
         mqtt_publishing = 0;
         return -1;
     }
 
+    // 计算 payload 长度（AT 命令需要指定数据长度）
     int len = (int)strlen(payload);
     char cmd[256];
 
+    // 构造 AT+CMQTTPUB 命令
+    // 格式：AT+CMQTTPUB=<client_idx>,"<topic>",<qos>,<length>
     snprintf(cmd, sizeof(cmd),
              "AT+CMQTTPUB=0,\"%s\",0,%d\r\n", topic, len);
 
+    // 输出调试信息到 UART6
     printf_uart6("\r\n========== MQTT_Publish_raw ==========\r\n");
     printf_uart6("[TOPIC] %s\r\n", topic);
     printf_uart6("[LEN  ] %d\r\n", len);
     printf_uart6("[PAYLD] %s\r\n", payload);
 
-    // 1) 先发 PUB 命令
+    // ========== 步骤1: 发送 CMQTTPUB 命令 ==========
     printf_uart1("%s", cmd);
-    AT_ReadAllToBuffer_Timeout(3000, 200, 1);
+    AT_ReadAllToBuffer_Timeout(3000, 200, 1);  // 等待最多3秒，空闲200ms判定结束
     printf_uart6("%s", AT_rx_buffer);
 
-    // 必须等到 >
+    // 检查是否收到 '>' 提示符（表示模块准备接收 payload 数据）
     if (strchr(AT_rx_buffer, '>') == NULL)
     {
         printf_uart6("[ERR] No '>' prompt, pub abort.\r\n");
@@ -192,19 +214,23 @@ int MQTT_Publish_raw(const char *topic, const char *payload)
         return -2;
     }
 
-    // 2) 发送 payload 原文（不加 \r\n）
+    // ========== 步骤2: 发送 payload 原文（不加 \r\n） ==========
+    // 逐字节发送到 USART1，避免使用 printf 添加额外字符
     for (int i = 0; i < len; i++)
     {
-        while (!(USART1->SR & USART_SR_TXE));
-        USART1->DR = payload[i];
+        while (!(USART1->SR & USART_SR_TXE));  // 等待发送寄存器空
+        USART1->DR = payload[i];                // 直接写入数据寄存器
     }
 
     HAL_Delay(100); // 等待 payload 发送完成
 
-    // 3) 等发布结果
-    AT_ReadAllToBuffer_Timeout(5000, 500, 1);
+    // ========== 步骤3: 等待发布结果 ==========
+    AT_ReadAllToBuffer_Timeout(5000, 500, 1);  // 等待最多5秒，空闲500ms判定结束
     printf_uart6("%s", AT_rx_buffer);
 
+    // 检查是否收到成功响应：+CMQTTPUB: 0,0
+    // 格式：+CMQTTPUB: <client_idx>,<result>
+    // result=0 表示发布成功
     if (strstr(AT_rx_buffer, "+CMQTTPUB: 0,0") == NULL)
     {
         printf_uart6("[ERR] CMQTTPUB failed.\r\n");
@@ -215,9 +241,9 @@ int MQTT_Publish_raw(const char *topic, const char *payload)
     printf_uart6("[OK] PUB SUCCESS.\r\n");
     printf_uart6("======================================\r\n");
 
-    HAL_Delay(200);
+    HAL_Delay(200);  // 短暂延时，让模块状态稳定
 
-    
+    // 清除互斥锁，允许其他操作（如 GNSS 查询）
     mqtt_publishing = 0;
     return 0;
 }

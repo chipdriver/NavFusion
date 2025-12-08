@@ -23,8 +23,8 @@ static float nmea_to_deg(const char *nmea, const char *hemi);  // NMEA 格式转
 
 // 定义环形缓冲区（USART1 IRQ 写入）
 char AT_RingBuffer[AT_RX_BUF_SIZE];      // 接收缓冲区
-static volatile uint16_t AT_RxWrite = 0; // 写指针
-static volatile uint16_t AT_RxRead  = 0; // 读指针
+volatile uint16_t AT_RxWrite = 0; // 写指针（✅ 去掉 static，允许外部访问）
+volatile uint16_t AT_RxRead  = 0; // 读指针（✅ 去掉 static，允许外部访问）
 
 // 定义线性拼接缓冲（用于 strstr / strtok 解析）
 char     AT_rx_buffer[AT_RX_BUF_SIZE]; // 线性接收缓冲区
@@ -288,11 +288,28 @@ uint8_t AT_GNSS_PowerOff(void)
  */
 uint8_t AT_GNSS_GetLocation(void)
 {
-    if(mqtt_publishing ==1 ) return 0; //正在发布MQTT时不获取位置，避免冲突
-    // 1. 发送命令并把应答读到 AT_rx_buffer 里
+    if(mqtt_publishing == 1) return 0; // 正在发布MQTT时不获取位置，避免冲突
+    
+    // ✅ 清空环形缓冲区
+    __disable_irq();
+    AT_RxRead = AT_RxWrite = 0;
+    __enable_irq();
+    
+    // ✅ 清空 UART1 硬件接收寄存器
+    volatile uint32_t dummy;
+    while (USART1->SR & USART_SR_RXNE)
+    {
+        dummy = USART1->DR;
+    }
+    (void)dummy;
+    
+    // ✅ 延迟 50ms（防止 AT 指令冲突）
+    HAL_Delay(50);
+    
+    // 发送命令并把应答读到 AT_rx_buffer 里
     printf_uart1("AT+CGPSINFO\r\n");
     AT_ReadAllToBuffer_Timeout(3000, 500, 1);
-    printf_uart6("RAW: %s\r\n", AT_rx_buffer); // 调试用
+    // printf_uart6("RAW: %s\r\n", AT_rx_buffer); // ✅ 注释掉调试输出，减少串口负载
 
     // 2. 在 AT_rx_buffer 里找到 "+CGPSINFO:" 那一行
     char *start = strstr(AT_rx_buffer, "+CGPSINFO:");

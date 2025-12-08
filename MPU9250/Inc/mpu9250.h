@@ -7,7 +7,7 @@
 #include "usart.h"
 #include "gpio.h"
 #include <math.h> 
-
+#include "payload.h"
 /*======================== 硬件配置宏定义 ========================*/
 #define MPU9250_I2C_ADDR7        0x68U  // AD0 接 GND -> I2C 7位地址 0x68
 #define AK8963_I2C_ADDR7         0x0CU  // AK8963 磁力计 I2C 7位地址 0x0C

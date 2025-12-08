@@ -520,6 +520,9 @@ int MPU9250_Read_9Axis(MPU9250_raw_Data *mpu_raw,
                        AK8963_raw_Data *ak_raw,
                        AK8963_Physical_Data *ak_phys)
 {
+    
+    if (mqtt_publishing) return -2; // 如果正在发布 MQTT，则跳过读取，返回错误码 -2
+
     // ========== 1. 读取六轴数据（加速度 + 陀螺仪 + 温度）==========
     MPU9250_Read_six_Axis(mpu_raw);
     

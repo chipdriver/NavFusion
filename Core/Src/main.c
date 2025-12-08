@@ -163,9 +163,6 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-   
-
-
     /*--- 读取九轴数据 ---*/
     int ret = MPU9250_Read_9Axis(&mpu_raw, &mpu_phys, &ak_raw, &ak_phys);
 
