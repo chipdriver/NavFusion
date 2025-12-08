@@ -11,7 +11,7 @@
 #define MQTT_DEVICE_ID         "Navfusion01"                       // 设备唯一标识
 
 // 完整 Topic（按照文档格式：thing/product/{厂商名称}/*/osd）
-#define MQTT_TOPIC_OSD         "thing/product/yuandu/20251208001/osd"
+#define MQTT_TOPIC_OSD         "thing/product/20251208001/osd"
 
 char* BuildPayload_WGS84_Attitude(
                                     const char *tid,           // 设备唯一标识符，只读参数

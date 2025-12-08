@@ -199,10 +199,6 @@ int MQTT_Publish_raw(const char *topic, const char *payload)
         USART1->DR = payload[i];
     }
 
-    // 2.5) 关键：发送 Ctrl+Z(0x1A) 结束数据窗口
-    while (!(USART1->SR & USART_SR_TXE));
-    USART1->DR = 0x1A;
-
     HAL_Delay(100); // 等待 payload 发送完成
 
     // 3) 等发布结果
