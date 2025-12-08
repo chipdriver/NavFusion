@@ -3,6 +3,16 @@
 
 #include "cJSON.h"     // cJSON 库
 
+/*==============================================================================
+ *                           MQTT Topic 定义
+ *============================================================================*/
+// 根据平台要求的 Topic 格式：thing/product/{厂商名称}/*/osd
+#define MQTT_VENDOR_NAME       "yuandu"                             // 厂商名称
+#define MQTT_DEVICE_ID         "Navfusion01"                       // 设备唯一标识
+
+// 完整 Topic（按照文档格式：thing/product/{厂商名称}/*/osd）
+#define MQTT_TOPIC_OSD         "thing/product/yuandu/20251208001/osd"
+
 char* BuildPayload_WGS84_Attitude(
                                     const char *tid,           // 设备唯一标识符，只读参数
                                     const char *bid,           // 业务标识符，只读参数
@@ -20,4 +30,7 @@ char* BuildPayload_WGS84_Attitude(
 );
 int MQTT_InitAndConnect_raw(void);
 int MQTT_Publish_raw(const char *topic, const char *payload);
+
+//互斥锁
+extern volatile int mqtt_publishing;
 #endif /* __PAYLOAD_H__ */

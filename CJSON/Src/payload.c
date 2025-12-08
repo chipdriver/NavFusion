@@ -1,6 +1,8 @@
 #include "payload.h"
 #include "cJSON.h"
 #include "a7670e.h"
+
+volatile int mqtt_publishing = 0; //互斥锁
 /**
  * @brief 组装 WGS84 + 姿态 的 JSON payload
  * @param tid           设备 TID（字符串，必填）
@@ -91,14 +93,14 @@ char* BuildPayload_WGS84_Attitude(
 }
 
 /**
- * @brief 启动 MQTT 并连接到 broker.emqx.io:1883（公共测试）
+ * @brief 启动 MQTT 并连接
  * @return 0 成功，非0失败
  */
 int MQTT_InitAndConnect_raw(void)
 {
     printf_uart6("\r\n========== MQTT_InitAndConnect_raw ==========\r\n");
 
-    // 1) CMQTTSTART
+    // 1) CMQTTSTART  启动MQTT客户端服务
     printf_uart1("AT+CMQTTSTART\r\n");
     AT_ReadAllToBuffer_Timeout(3000, 200, 1);
     printf_uart6("%s", AT_rx_buffer);
@@ -111,8 +113,8 @@ int MQTT_InitAndConnect_raw(void)
     }
     HAL_Delay(300);
 
-    // 2) ACCQ client
-    printf_uart1("AT+CMQTTACCQ=0,\"A7670E001\",0\r\n");
+    // 2) ACCQ client  申请/获取一个 MQTT 客户端实例
+    printf_uart1("AT+CMQTTACCQ=0,\"" MQTT_DEVICE_ID "\",0\r\n");
     AT_ReadAllToBuffer_Timeout(3000, 200, 1);
     printf_uart6("%s", AT_rx_buffer);
     if (strstr(AT_rx_buffer, "OK") == NULL)
@@ -122,7 +124,7 @@ int MQTT_InitAndConnect_raw(void)
     }
     HAL_Delay(300);
 
-    // 3) CFG argtopic
+    // 3) CFG argtopic   配置 MQTT 客户端的 Topic 参数模式
     printf_uart1("AT+CMQTTCFG=\"argtopic\",0,1,1\r\n");
     AT_ReadAllToBuffer_Timeout(2000, 150, 1);
     printf_uart6("%s", AT_rx_buffer);
@@ -133,8 +135,8 @@ int MQTT_InitAndConnect_raw(void)
     }
     HAL_Delay(300);
 
-    // 4) CONNECT
-    printf_uart1("AT+CMQTTCONNECT=0,\"tcp://broker.emqx.io:1883\",60,1\r\n");
+    // 4) CONNECT 连接到 MQTT Broker（服务器）
+    printf_uart1("AT+CMQTTCONNECT=0,\"tcp://47.104.246.138:1883\",60,1,\"tiantong\",\"yuandu@2022##\"\r\n");
     AT_ReadAllToBuffer_Timeout(10000, 300, 1);
     printf_uart6("%s", AT_rx_buffer);
 
@@ -159,7 +161,12 @@ int MQTT_InitAndConnect_raw(void)
  */
 int MQTT_Publish_raw(const char *topic, const char *payload)
 {
-    if (!topic || !payload) return -1;
+    mqtt_publishing = 1;
+    if (!topic || !payload)
+    {
+        mqtt_publishing = 0;
+        return -1;
+    }
 
     int len = (int)strlen(payload);
     char cmd[256];
@@ -181,6 +188,7 @@ int MQTT_Publish_raw(const char *topic, const char *payload)
     if (strchr(AT_rx_buffer, '>') == NULL)
     {
         printf_uart6("[ERR] No '>' prompt, pub abort.\r\n");
+        mqtt_publishing = 0;
         return -2;
     }
 
@@ -191,18 +199,30 @@ int MQTT_Publish_raw(const char *topic, const char *payload)
         USART1->DR = payload[i];
     }
 
+    // 2.5) 关键：发送 Ctrl+Z(0x1A) 结束数据窗口
+    while (!(USART1->SR & USART_SR_TXE));
+    USART1->DR = 0x1A;
+
+    HAL_Delay(100); // 等待 payload 发送完成
+
     // 3) 等发布结果
-    AT_ReadAllToBuffer_Timeout(5000, 300, 1);
+    AT_ReadAllToBuffer_Timeout(5000, 500, 1);
     printf_uart6("%s", AT_rx_buffer);
 
     if (strstr(AT_rx_buffer, "+CMQTTPUB: 0,0") == NULL)
     {
         printf_uart6("[ERR] CMQTTPUB failed.\r\n");
+        mqtt_publishing = 0;
         return -3;
     }
 
     printf_uart6("[OK] PUB SUCCESS.\r\n");
     printf_uart6("======================================\r\n");
+
+    HAL_Delay(200);
+
+    
+    mqtt_publishing = 0;
     return 0;
 }
 

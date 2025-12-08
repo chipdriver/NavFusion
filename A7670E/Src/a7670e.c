@@ -288,6 +288,7 @@ uint8_t AT_GNSS_PowerOff(void)
  */
 uint8_t AT_GNSS_GetLocation(void)
 {
+    if(mqtt_publishing ==1 ) return 0; //正在发布MQTT时不获取位置，避免冲突
     // 1. 发送命令并把应答读到 AT_rx_buffer 里
     printf_uart1("AT+CGPSINFO\r\n");
     AT_ReadAllToBuffer_Timeout(3000, 500, 1);

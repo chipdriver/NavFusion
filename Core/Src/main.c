@@ -163,8 +163,7 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-    /*--- GNSS 定位 ---*/
-    AT_GNSS_GetLocation();//获取经纬度信息
+   
 
 
     /*--- 读取九轴数据 ---*/
@@ -213,7 +212,7 @@ int main(void)
     }
 
     //组JSON
-    char *payload = BuildPayload_WGS84_Attitude("device_id", "business_id", HAL_GetTick(), "gateway_id",
+    char *payload = BuildPayload_WGS84_Attitude(MQTT_DEVICE_ID, "business_id", HAL_GetTick(), "gateway_id",
                                                   gnss_data.latitude, gnss_data.longitude, gnss_data.altitude, gnss_data.speed_knots,
                                                   roll_deg, pitch_deg, yaw_deg,
                                                   0, 0);
@@ -223,13 +222,16 @@ int main(void)
       printf_uart6("%s\r\n", payload);
 
       // ---- 下一步：MQTT 发布（你后面接 CMQTTPUB）----
-      MQTT_Publish_raw("topictest", payload);
+      MQTT_Publish_raw(MQTT_TOPIC_OSD, payload);
 
       // 用完一定 free
       free(payload);
     }
 
-    HAL_Delay(5);   // 约 200Hz
+     /*--- GNSS 定位 ---*/
+    AT_GNSS_GetLocation();//获取经纬度信息
+
+    HAL_Delay(200);   
 
     /* USER CODE BEGIN 3 */
   }
