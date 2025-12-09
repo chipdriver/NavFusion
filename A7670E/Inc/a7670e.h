@@ -19,7 +19,7 @@
 #include <stdarg.h>
 #include <math.h>
 #include <stdlib.h>
-#include "payload.h"
+
 /*==============================================================================
  *                           宏定义
  *============================================================================*/
@@ -39,6 +39,9 @@ typedef struct
 }GNSS_Data_t;
 
 extern GNSS_Data_t gnss_data; // GNSS 数据结构体
+
+extern volatile uint16_t AT_RxWrite; // 写指针
+extern volatile uint16_t AT_RxRead;  // 读指针
 
 /*==============================================================================
  *                           函数声明
